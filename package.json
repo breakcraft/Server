@@ -8,6 +8,7 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "@inquirer/prompts": "^7.5.3"
+    "@inquirer/prompts": "^7.5.3",
+    "bcryptjs": "^3.0.2"
   }
 }
