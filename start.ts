@@ -62,6 +62,12 @@ async function main() {
     }
 
     if (!fs.existsSync('engine/.env')) {
+        child_process.spawnSync('bun install', {
+            shell: true,
+            stdio: 'inherit',
+            cwd: 'engine'
+        });
+
         child_process.spawnSync('bun run setup', {
             shell: true,
             stdio: 'inherit',
