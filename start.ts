@@ -4,24 +4,26 @@ import fs from 'fs';
 import { ExitPromptError } from '@inquirer/core';
 import { confirm, input, number, password, select } from '@inquirer/prompts';
 
-// if you're forking this feel free to change these :) it does make some assumptions elsewhere (branch names)
-const repoOrg = 'https://github.com/Breakcraft';
-const engineRepo = 'Engine-TS';
-const contentRepo = 'Content';
-const webRepo = 'Client-TS';
-const javaRepo = 'Client-Java';
+// Subtree configuration
+const subtreeRemotes = [
+    { prefix: 'engine', alias: 'engine-ts', url: 'https://github.com/breakcraft/Engine-TS' },
+    { prefix: 'content', alias: 'content', url: 'https://github.com/breakcraft/Content' },
+    { prefix: 'client', alias: 'client-ts', url: 'https://github.com/breakcraft/Client-TS' },
+    { prefix: 'javaclient', alias: 'client-java', url: 'https://github.com/breakcraft/Client-Java' }
+];
 
-function cloneRepo(repo: string, dir: string, branch: string) {
-    child_process.execSync(`git clone ${repoOrg}/${repo} --single-branch -b ${branch} ${dir}`, {
-        stdio: 'inherit'
-    });
+function ensureRemote(alias: string, url: string) {
+    try {
+        child_process.execSync(`git remote get-url ${alias}`, { stdio: 'ignore' });
+    } catch {
+        child_process.execSync(`git remote add ${alias} ${url}`, { stdio: 'inherit' });
+    }
 }
 
-function updateRepo(cwd: string) {
-    child_process.execSync('git pull', {
-        stdio: 'inherit',
-        cwd
-    });
+function subtreePull(prefix: string, alias: string, branch: string) {
+    // Fetch + subtree pull keeps subtrees up to date
+    child_process.execSync(`git fetch ${alias} ${branch} --depth=1`, { stdio: 'inherit' });
+    child_process.execSync(`git subtree pull --prefix=${prefix} ${alias} ${branch} --squash`, { stdio: 'inherit' });
 }
 
 function runOnOs(exec: string, cwd?: string) {
@@ -45,20 +47,13 @@ async function main() {
 
     config = JSON.parse(fs.readFileSync('server.json', 'utf8'));
 
-    if (!fs.existsSync('engine')) {
-        cloneRepo(engineRepo, 'engine', config.rev);
-    }
-
-    if (!fs.existsSync('content')) {
-        cloneRepo(contentRepo, 'content', config.rev);
-    }
-
-    if (!fs.existsSync('webclient')) {
-        cloneRepo(webRepo, 'webclient', config.rev);
-    }
-
-    if (!fs.existsSync('javaclient')) {
-        cloneRepo(javaRepo, 'javaclient', config.rev);
+    // Ensure subtree directories exist (they should, as part of this repo)
+    const requiredDirs = ['engine', 'content', 'client', 'javaclient'];
+    const missing = requiredDirs.filter(d => !fs.existsSync(d));
+    if (missing.length) {
+        console.error('Missing required directories:', missing.join(', '));
+        console.error('This repository expects subtrees to be present.');
+        process.exit(1);
     }
 
     if (!fs.existsSync('engine/.env')) {
@@ -83,7 +78,7 @@ async function main() {
             value: 'start'
         }, {
             name: 'Update Source',
-            description: 'Pull the latest commits for all subprojects',
+            description: 'Pull the latest commits for all subtrees',
             value: 'update'
         }, {
             name: 'Run Web Client',
@@ -110,10 +105,9 @@ async function main() {
             cwd: 'engine'
         });
     } else if (choice === 'update') {
-        updateRepo('engine');
-        updateRepo('content');
-        updateRepo('webclient');
-        updateRepo('javaclient');
+        // Ensure remotes exist, then pull each subtree on configured branch
+        for (const r of subtreeRemotes) ensureRemote(r.alias, r.url);
+        for (const r of subtreeRemotes) subtreePull(r.prefix, r.alias, config.rev);
     } else if (choice === 'web') {
         if (process.platform === 'win32' || process.platform === 'darwin') {
             runOnOs('http://localhost/rs2.cgi');
@@ -218,11 +212,26 @@ async function promptAdvanced() {
     } else if (choice === 'build-web') {
         child_process.execSync('bun run build', {
             stdio: 'inherit',
-            cwd: 'webclient'
+            cwd: 'client'
         });
 
-        fs.copyFileSync('webclient/out/client.js', 'engine/public/client/client.js');
-        fs.copyFileSync('webclient/out/deps.js', 'engine/public/client/deps.js');
+        // Copy built assets into the engine's public directory
+        if (fs.existsSync('client/out/client.js')) {
+            fs.copyFileSync('client/out/client.js', 'engine/public/client/client.js');
+        }
+        if (fs.existsSync('client/out/deps.js')) {
+            fs.copyFileSync('client/out/deps.js', 'engine/public/client/deps.js');
+        }
+        // Optional extras if present
+        if (fs.existsSync('client/out/mapview.js')) {
+            fs.copyFileSync('client/out/mapview.js', 'engine/public/client/mapview.js');
+        }
+        if (fs.existsSync('client/out/bzip2.wasm')) {
+            fs.copyFileSync('client/out/bzip2.wasm', 'engine/public/client/bzip2.wasm');
+        }
+        if (fs.existsSync('client/out/tinymidipcm.wasm')) {
+            fs.copyFileSync('client/out/tinymidipcm.wasm', 'engine/public/client/tinymidipcm.wasm');
+        }
     } else if (choice === 'build-java') {
         child_process.execSync('gradlew build', {
             stdio: 'inherit',
@@ -230,11 +239,9 @@ async function promptAdvanced() {
         });
     } else if (choice === 'change-version') {
         await promptConfig();
-
-        fs.rmSync('engine', { recursive: true, force: true });
-        fs.rmSync('content', { recursive: true, force: true });
-        fs.rmSync('webclient', { recursive: true, force: true });
-        fs.rmSync('javaclient', { recursive: true, force: true });
+        // Update all subtrees to the selected branch
+        for (const r of subtreeRemotes) ensureRemote(r.alias, r.url);
+        for (const r of subtreeRemotes) subtreePull(r.prefix, r.alias, config.rev);
     }
 }
 
