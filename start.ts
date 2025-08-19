@@ -1,5 +1,6 @@
 import child_process from 'child_process';
 import fs from 'fs';
+import path from 'path';
 
 import { ExitPromptError } from '@inquirer/core';
 import { confirm, input, number, password, select } from '@inquirer/prompts';
@@ -513,6 +514,10 @@ async function promptAdvanced() {
             description: 'Update subtrees now, then start auto-commit/push watchers',
             value: 'update-and-sync'
         }, {
+            name: 'Initialize Subtrees (advanced/unsafe)',
+            description: 'Convert existing directories to real git subtrees with backups',
+            value: 'init-subtrees'
+        }, {
         // todo:
         //     name: 'Reconfigure Server',
         //     description: 'Edit the environment config for the server',
@@ -597,6 +602,112 @@ async function promptAdvanced() {
         // Immediately start watchers; keep in foreground
         running = false;
         await startAutoUpdateWatchers(subtreeRemotes as Subtree[], config.rev);
+    } else if (choice === 'init-subtrees') {
+        // Warn user
+        const proceed = await confirm({
+            message: 'This will back up each subtree dir and attempt git subtree add. Proceed?',
+            default: false
+        }, { clearPromptOnDone: true });
+        if (!proceed) return;
+
+        // Ensure remotes
+        for (const r of subtreeRemotes) ensureRemote(r.alias, r.url);
+
+        // Option: stash repo changes to avoid conflicts
+        let stashed = false;
+        if (hasUncommittedChanges()) {
+            const doStash = await confirm({
+                message: 'Uncommitted changes detected. Temporarily stash while initializing?',
+                default: true
+            }, { clearPromptOnDone: true });
+            if (doStash) {
+                stashed = autoStash(`auto-stash before subtree initialization (${new Date().toISOString()})`);
+            }
+        }
+
+        // helper: copy unique files from src->dst (skip ones that already exist)
+        function copyUnique(srcDir: string, dstDir: string, copied: string[]) {
+            const entries = fs.readdirSync(srcDir, { withFileTypes: true });
+            for (const ent of entries) {
+                if (ent.name === '.git') continue;
+                const s = path.join(srcDir, ent.name);
+                const d = path.join(dstDir, ent.name);
+                if (ent.isDirectory()) {
+                    if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+                    copyUnique(s, d, copied);
+                } else if (ent.isFile()) {
+                    if (!fs.existsSync(d)) {
+                        fs.mkdirSync(path.dirname(d), { recursive: true });
+                        fs.copyFileSync(s, d);
+                        copied.push(path.relative(process.cwd(), d));
+                    }
+                }
+            }
+        }
+
+        for (const r of subtreeRemotes) {
+            // Skip if already initialized
+            if (isSubtreeInitialized(r.prefix)) {
+                console.log(`${r.prefix}: already initialized. Skipping.`);
+                continue;
+            }
+
+            // Fetch branch
+            try {
+                child_process.execSync(`git fetch ${r.alias} ${config.rev} --depth=1`, { stdio: 'inherit' });
+            } catch {}
+
+            const prefix = r.prefix;
+            const exists = fs.existsSync(prefix);
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const backupDir = `${prefix}.backup.${timestamp}`;
+
+            if (exists && !isDirEmpty(prefix)) {
+                console.log(`${prefix}: backing up current directory to ${backupDir} ...`);
+                fs.renameSync(prefix, backupDir);
+            } else {
+                // Ensure parent exists
+                fs.mkdirSync(path.dirname(prefix), { recursive: true });
+            }
+
+            // Attempt subtree add
+            try {
+                child_process.execSync(`git subtree add --prefix=${prefix} ${r.alias} ${config.rev} --squash`, { stdio: 'inherit' });
+            } catch (e) {
+                console.log(`${prefix}: subtree add failed.`);
+                // Restore backup if we moved it
+                if (fs.existsSync(backupDir) && !fs.existsSync(prefix)) {
+                    fs.renameSync(backupDir, prefix);
+                }
+                continue;
+            }
+
+            // Overlay any unique local files from backup (do not overwrite remote files)
+            const copied: string[] = [];
+            if (fs.existsSync(backupDir)) {
+                console.log(`${prefix}: copying unique files from backup into subtree ...`);
+                try {
+                    copyUnique(backupDir, prefix, copied);
+                } catch {}
+            }
+
+            // Stage and commit
+            try {
+                child_process.execSync(`git add -A ${prefix}`, { stdio: 'inherit' });
+                const msg = `init-subtree(${prefix}): add ${r.alias}/${config.rev} (backup ${path.basename(backupDir)})`;
+                child_process.execSync(`git commit -m "${msg.replace(/"/g, '\\"')}"`, { stdio: 'inherit' });
+            } catch {}
+
+            console.log(`${prefix}: initialized as subtree. Backup kept at ${backupDir}.`);
+            if (copied.length) {
+                console.log(`${prefix}: ${copied.length} unique files restored from backup.`);
+            }
+        }
+
+        if (stashed) {
+            console.log('Reapplying stashed changes...');
+            autoStashPop();
+        }
     } else if (choice === 'push-subtree') {
         // Choose which subtree to push
         const subtree = await select({
