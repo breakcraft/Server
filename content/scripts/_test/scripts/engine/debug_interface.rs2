@@ -1,9 +1,0 @@
-[debugproc,open](interface $interface)
-if ($interface = null) {
-    return;
-}
-
-if_openmain($interface);
-
-[debugproc,close]
-if_close;

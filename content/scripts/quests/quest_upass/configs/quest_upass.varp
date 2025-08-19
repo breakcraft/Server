@@ -1,8 +1,0 @@
-[upass_progress]
-scope=perm
-
-[upass_map_mechanisms]
-scope=perm
-
-[iban_staff_charges]
-scope=perm
