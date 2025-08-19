@@ -781,7 +781,53 @@ async function promptAdvanced() {
 
             if (exists && !isDirEmpty(prefix)) {
                 console.log(`${prefix}: backing up current directory to ${backupDir} ...`);
-                fs.renameSync(prefix, backupDir);
+                let renamed = false;
+                try {
+                    fs.renameSync(prefix, backupDir);
+                    renamed = true;
+                } catch (err) {
+                    console.log(`${prefix}: rename failed (${(err as Error).message}). Attempting copy fallback...`);
+                    // Fallback: copy entire tree, then try to clear original dir
+                    const copyAll = (srcDir: string, dstDir: string) => {
+                        const entries = fs.readdirSync(srcDir, { withFileTypes: true });
+                        for (const ent of entries) {
+                            if (ent.name === '.git') continue;
+                            const s = path.join(srcDir, ent.name);
+                            const d = path.join(dstDir, ent.name);
+                            if (ent.isDirectory()) {
+                                if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+                                copyAll(s, d);
+                            } else if (ent.isFile()) {
+                                fs.mkdirSync(path.dirname(d), { recursive: true });
+                                fs.copyFileSync(s, d);
+                            }
+                        }
+                    };
+                    try {
+                        fs.mkdirSync(backupDir, { recursive: true });
+                        copyAll(prefix, backupDir);
+                        console.log(`${prefix}: backup copied to ${backupDir}.`);
+                        // Try to clear original directory so subtree add can proceed
+                        try {
+                            fs.rmSync(prefix, { recursive: true, force: true });
+                            fs.mkdirSync(prefix, { recursive: true });
+                            renamed = true; // treat as cleared
+                        } catch (clearErr) {
+                            console.log(`${prefix}: could not clear original directory (${(clearErr as Error).message}).`);
+                            console.log(`Please close any process using files in '${prefix}' and rerun initialization. Backup is at ${backupDir}.`);
+                            // Continue to next subtree without attempting add
+                            continue;
+                        }
+                    } catch (copyErr) {
+                        console.log(`${prefix}: backup copy failed (${(copyErr as Error).message}). Aborting initialization for this subtree.`);
+                        continue;
+                    }
+                }
+                if (!renamed) {
+                    // Should not reach here; safety
+                    console.log(`${prefix}: backup step did not complete. Skipping.`);
+                    continue;
+                }
             } else {
                 // Ensure parent exists
                 fs.mkdirSync(path.dirname(prefix), { recursive: true });
