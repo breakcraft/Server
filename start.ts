@@ -133,6 +133,35 @@ function listSubtreeChanges(prefix: string): string {
     }
 }
 
+function showSubtreeStatus(remotes: Subtree[], rev: string) {
+    console.log('Subtree Status:\n');
+    for (const r of remotes) {
+        const exists = fs.existsSync(r.prefix);
+        const empty = exists ? isDirEmpty(r.prefix) : true;
+        const init = isSubtreeInitialized(r.prefix);
+        const pushBranch = init ? rev : `auto/${r.prefix}/${rev}`;
+        let changes = '';
+        try {
+            changes = child_process.execSync(`git status --porcelain -- ${r.prefix}`, { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+        } catch {}
+        console.log(`- ${r.prefix}:`);
+        console.log(`  remote: ${r.alias} (${r.url})`);
+        console.log(`  dir: ${exists ? (empty ? 'exists (empty)' : 'exists') : 'missing'}`);
+        console.log(`  initialized: ${init ? 'yes' : 'no'}`);
+        console.log(`  pull: ${init ? 'enabled' : 'skipped (not initialized)'}`);
+        console.log(`  push target: ${r.alias}/${pushBranch}`);
+        if (changes) {
+            const lines = changes.split('\n');
+            const show = lines.slice(0, 5).join('\n');
+            console.log('  pending changes:');
+            console.log(show + (lines.length > 5 ? '\n  ...' : ''));
+        } else {
+            console.log('  pending changes: none');
+        }
+        console.log('');
+    }
+}
+
 async function commitAndPushSubtree(prefix: string, alias: string, branch: string, url: string) {
     // Check changes
     const changes = listSubtreeChanges(prefix);
@@ -423,6 +452,10 @@ async function main() {
                 console.log('Reapplying stashed changes...');
                 autoStashPop();
             }
+            // Show a status summary after update completes
+            try {
+                showSubtreeStatus(subtreeRemotes as Subtree[], config.rev);
+            } catch {}
             // After updating (and possibly reapplying stash), offer to commit+push any remaining changes
             let anyChanges = false;
             for (const r of subtreeRemotes) {
