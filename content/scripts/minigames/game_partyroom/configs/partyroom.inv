@@ -1,7 +1,0 @@
-[partyroom_dropinv]
-scope=shared
-size=216
-
-[partyroom_tempinv]
-size=8
-protect=no

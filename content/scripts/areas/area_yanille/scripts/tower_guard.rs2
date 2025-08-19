@@ -1,3 +1,0 @@
-[opnpc1,tower_guard]
-~chatplayer("<p,neutral>Hello. What are you doing here?");
-~chatnpc("<p,neutral>We are the tower guards - our business is our own!");

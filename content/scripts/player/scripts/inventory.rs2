@@ -1,3 +1,0 @@
-[inv_buttond,inventory:inv]
-if_close;
-inv_movetoslot(inv, inv, last_slot, last_targetslot);

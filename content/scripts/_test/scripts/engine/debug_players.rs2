@@ -1,2 +1,0 @@
-[debugproc,players]
-mes("The total number of player(s) online are: <tostring(playercount)>");

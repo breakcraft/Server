@@ -1,7 +1,0 @@
-[tradepartner]
-type=player_uid
-protect=no
-
-[tradestatus]
-type=int
-protect=no
