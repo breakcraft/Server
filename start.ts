@@ -20,10 +20,33 @@ function ensureRemote(alias: string, url: string) {
     }
 }
 
+function isDirEmpty(dir: string): boolean {
+    try {
+        const entries = fs.readdirSync(dir);
+        return entries.length === 0;
+    } catch {
+        return true;
+    }
+}
+
 function subtreePull(prefix: string, alias: string, branch: string) {
     // Fetch + subtree pull keeps subtrees up to date
     child_process.execSync(`git fetch ${alias} ${branch} --depth=1`, { stdio: 'inherit' });
-    child_process.execSync(`git subtree pull --prefix=${prefix} ${alias} ${branch} --squash`, { stdio: 'inherit' });
+    try {
+        child_process.execSync(`git subtree pull --prefix=${prefix} ${alias} ${branch} --squash`, { stdio: 'inherit' });
+    } catch (e) {
+        // If the subtree was never added, attempt an initial add only if directory is missing or empty
+        const exists = fs.existsSync(prefix);
+        if (!exists || isDirEmpty(prefix)) {
+            try {
+                child_process.execSync(`git subtree add --prefix=${prefix} ${alias} ${branch} --squash`, { stdio: 'inherit' });
+                return;
+            } catch (e2) {
+                throw e2;
+            }
+        }
+        throw e;
+    }
 }
 
 function runOnOs(exec: string, cwd?: string) {
@@ -45,6 +68,35 @@ const DEBOUNCE_MS = 1500;
 const PULL_INTERVAL_MS = 60000; // periodically sync from upstream
 
 type Subtree = { prefix: string; alias: string; url: string };
+
+async function chooseUpdateAction(): Promise<'commit-push' | 'stash' | 'cancel'> {
+    const isTTY = !!process.stdin.isTTY && !!process.stdout.isTTY;
+    if (isTTY) {
+        try {
+            return await select({
+                message: 'Uncommitted changes detected. How should we proceed?',
+                choices: [
+                    { name: 'Commit & Push subtree changes, then update', value: 'commit-push' },
+                    { name: 'Temporarily Stash changes, update, then reapply', value: 'stash' },
+                    { name: 'Cancel', value: 'cancel' }
+                ]
+            }, { clearPromptOnDone: true });
+        } catch {
+            // fall through to numeric input fallback
+        }
+    }
+
+    // Fallback for environments where interactive select may freeze
+    const ans = await input({
+        message: 'Uncommitted changes detected. Enter 1=Commit&Push, 2=Stash, 3=Cancel (default 2):',
+        default: '2'
+    }, { clearPromptOnDone: true });
+    switch ((ans || '2').trim()) {
+        case '1': return 'commit-push';
+        case '3': return 'cancel';
+        default: return 'stash';
+    }
+}
 
 function hasUncommittedChanges(): boolean {
     try {
@@ -129,6 +181,15 @@ async function commitAndPushSubtree(prefix: string, alias: string, branch: strin
     }
 }
 
+function isSubtreeInitialized(prefix: string): boolean {
+    try {
+        const out = child_process.execSync(`git log --grep="git-subtree-dir: ${prefix}" -n 1 --pretty=format:%H`, { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+        return out.length > 0;
+    } catch {
+        return false;
+    }
+}
+
 async function startAutoUpdateWatchers(remotes: Subtree[], branch: string) {
     console.log('Auto-update watchers enabled. Press Ctrl+C to stop.');
     // Ensure remotes exist
@@ -137,6 +198,12 @@ async function startAutoUpdateWatchers(remotes: Subtree[], branch: string) {
     const lastStatus = new Map<string, string>();
     const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
     const pulling = new Set<string>();
+    const initialized = new Map<string, boolean>();
+    const warnedNotInit = new Set<string>();
+
+    for (const r of remotes) {
+        initialized.set(r.prefix, isSubtreeInitialized(r.prefix));
+    }
 
     async function handleSubtree(prefix: string, alias: string, url: string) {
         if (pulling.has(prefix)) return; // skip while pulling to avoid conflicts
@@ -178,12 +245,19 @@ async function startAutoUpdateWatchers(remotes: Subtree[], branch: string) {
                 }
 
                 try {
-                    child_process.execSync(`git subtree push --prefix=${prefix} ${alias} ${branch}`, { stdio: 'inherit' });
+                    const pushBranch = initialized.get(prefix) ? branch : `auto/${prefix}/${branch}`;
+                    if (!initialized.get(prefix) && !warnedNotInit.has(prefix)) {
+                        console.log(`Pushing ${prefix} changes to ${alias}/${pushBranch} (subtree not initialized).`);
+                        console.log(`Open a PR from ${pushBranch} into ${branch} on ${alias} if desired.`);
+                        warnedNotInit.add(prefix);
+                    }
+                    child_process.execSync(`git subtree push --prefix=${prefix} ${alias} ${pushBranch}`, { stdio: 'inherit' });
                 } catch {
                     try {
-                        const tempName = `subtree/${prefix}/${branch}/${Date.now()}`;
+                        const pb = initialized.get(prefix) ? branch : `auto/${prefix}/${branch}`;
+                        const tempName = `subtree/${prefix}/${pb}/${Date.now()}`;
                         child_process.execSync(`git subtree split --prefix=${prefix} -b ${tempName}`, { stdio: 'inherit' });
-                        child_process.execSync(`git push ${alias} ${tempName}:${branch}`, { stdio: 'inherit' });
+                        child_process.execSync(`git push ${alias} ${tempName}:${pb}`, { stdio: 'inherit' });
                         child_process.execSync(`git branch -D ${tempName}`, { stdio: 'inherit' });
                     } catch {
                         console.log(`Auto-push failed for ${prefix}. You may need to push manually.`);
@@ -208,7 +282,14 @@ async function startAutoUpdateWatchers(remotes: Subtree[], branch: string) {
                 if (pulling.has(r.prefix)) continue;
                 pulling.add(r.prefix);
                 try {
-                    subtreePull(r.prefix, r.alias, branch);
+                    if (initialized.get(r.prefix)) {
+                        subtreePull(r.prefix, r.alias, branch);
+                    } else {
+                        if (!warnedNotInit.has(r.prefix)) {
+                            console.log(`Skipping periodic pull for ${r.prefix}: subtree not initialized.`);
+                            warnedNotInit.add(r.prefix);
+                        }
+                    }
                 } catch {
                     console.log(`Periodic pull failed for ${r.prefix}. You may need to resolve merges manually.`);
                 } finally {
@@ -299,14 +380,7 @@ async function main() {
         // Auto-stash local changes to allow subtree pulls without failure
         let stashed = false;
         if (hasUncommittedChanges()) {
-            const action = await select({
-                message: 'Uncommitted changes detected. How should we proceed?',
-                choices: [
-                    { name: 'Commit & Push subtree changes, then update', value: 'commit-push' },
-                    { name: 'Temporarily Stash changes, update, then reapply', value: 'stash' },
-                    { name: 'Cancel', value: 'cancel' }
-                ]
-            }, { clearPromptOnDone: true });
+            const action = await chooseUpdateAction();
 
             if (action === 'cancel') {
                 console.log('Update cancelled to avoid losing local changes.');
@@ -482,14 +556,7 @@ async function promptAdvanced() {
         // Perform the same update flow as main menu, then start watchers automatically
         let stashed = false;
         if (hasUncommittedChanges()) {
-            const action = await select({
-                message: 'Uncommitted changes detected. How should we proceed?',
-                choices: [
-                    { name: 'Commit & Push subtree changes, then update', value: 'commit-push' },
-                    { name: 'Temporarily Stash changes, update, then reapply', value: 'stash' },
-                    { name: 'Cancel', value: 'cancel' }
-                ]
-            }, { clearPromptOnDone: true });
+            const action = await chooseUpdateAction();
 
             if (action === 'cancel') return;
 
