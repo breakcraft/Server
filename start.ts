@@ -342,6 +342,56 @@ async function startAutoUpdateWatchers(remotes: Subtree[], branch: string) {
     clearInterval(interval);
     clearInterval(pullInterval);
 }
+
+async function handleCliArgs(): Promise<boolean> {
+    const argv = process.argv.slice(2);
+    if (!argv.length) return false;
+
+    // ensure config present
+    if (!fs.existsSync('server.json')) {
+        await promptConfig();
+    }
+    config = JSON.parse(fs.readFileSync('server.json', 'utf8'));
+
+    // Non-interactive: just show subtree status
+    if (argv.includes('--status')) {
+        for (const r of subtreeRemotes) ensureRemote(r.alias, r.url);
+        showSubtreeStatus(subtreeRemotes as Subtree[], config.rev);
+        return true;
+    }
+
+    // Non-interactive: start watchers only
+    if (argv.includes('--start-watchers')) {
+        for (const r of subtreeRemotes) ensureRemote(r.alias, r.url);
+        await startAutoUpdateWatchers(subtreeRemotes as Subtree[], config.rev);
+        return true; // foreground run
+    }
+
+    // Non-interactive: update, show status, then start watchers
+    if (argv.includes('--update-and-sync') || argv.includes('--auto')) {
+        // default behavior: stash dirty tree, update all subtrees, show status, start watchers
+        let stashed = false;
+        if (hasUncommittedChanges()) {
+            stashed = autoStash(`auto-stash before CLI update-and-sync (${new Date().toISOString()})`);
+        }
+        try {
+            for (const r of subtreeRemotes) ensureRemote(r.alias, r.url);
+            for (const r of subtreeRemotes) subtreePull(r.prefix, r.alias, config.rev);
+        } finally {
+            if (stashed) {
+                console.log('Reapplying stashed changes...');
+                autoStashPop();
+            }
+        }
+        try {
+            showSubtreeStatus(subtreeRemotes as Subtree[], config.rev);
+        } catch {}
+        await startAutoUpdateWatchers(subtreeRemotes as Subtree[], config.rev);
+        return true; // foreground run
+    }
+
+    return false;
+}
 async function main() {
     if (!fs.existsSync('server.json')) {
         await promptConfig();
@@ -912,8 +962,11 @@ async function promptAdvanced() {
 }
 
 try {
-    while (running) {
-        await main();
+    const handled = await handleCliArgs();
+    if (!handled) {
+        while (running) {
+            await main();
+        }
     }
 } catch (e) {
     if (e instanceof ExitPromptError) {
