@@ -1,2 +1,0 @@
-[oploc1,winch]
-mes("It seems the winch is jammed - I can't move it."); // is this the only thing it does?
