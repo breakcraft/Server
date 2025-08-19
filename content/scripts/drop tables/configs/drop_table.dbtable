@@ -1,3 +1,0 @@
-[drop_table]
-column=total,int
-column=drop,namedobj,int,int
