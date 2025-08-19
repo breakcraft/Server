@@ -23,6 +23,10 @@ export default class Component {
     private static componentNames: Map<string, number> = new Map();
     private static components: Component[] = [];
 
+    static get count(): number {
+        return this.components.length;
+    }
+
     static load(dir: string): void {
         if (!fs.existsSync(`${dir}/server/interface.dat`)) {
             return;

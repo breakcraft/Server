@@ -10,7 +10,8 @@
     "paths": {
       "#3rdparty/*": ["src/3rdparty/*"],
       "#/*": ["src/*"],
-      "#tools/*": ["tools/*"]
+      "#tools/*": ["tools/*"],
+      "#/util/ActionDebugger.js": ["src/util/ActionDebugger.ts"]
     },
     "types": ["node", "bun-types"],
     "typeRoots": ["node_modules", "node_modules/@types"],
