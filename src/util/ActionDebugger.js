@@ -4,20 +4,56 @@
 /** @type {WeakSet<any>} */
 const enabled = new WeakSet();
 
+function toDebugPart(v) {
+    if (typeof v === 'string') return v;
+    try {
+        return JSON.stringify(v);
+    } catch {
+        try {
+            return String(v);
+        } catch {
+            return '[unserializable]';
+        }
+    }
+}
+
 const ActionDebugger = {
     /**
-     * @param {any} player
-     * @returns {boolean}
-     */
+   * Check if debugging is enabled for a player.
+   * @param {any} player
+   * @returns {boolean}
+   */
     isEnabled(player) {
         return enabled.has(player);
     },
 
     /**
-     * Toggles debugging for the given player.
-     * @param {any} player
-     * @returns {boolean} true if now enabled, false if disabled
-     */
+   * Enable debugging for a player.
+   * @param {any} player
+   * @returns {boolean} true if it was just enabled, false if it was already enabled
+   */
+    enable(player) {
+        const wasEnabled = enabled.has(player);
+        if (!wasEnabled) enabled.add(player);
+        return !wasEnabled;
+    },
+
+    /**
+   * Disable debugging for a player.
+   * @param {any} player
+   * @returns {boolean} true if it was just disabled, false if it was already disabled
+   */
+    disable(player) {
+        const wasEnabled = enabled.has(player);
+        if (wasEnabled) enabled.delete(player);
+        return wasEnabled;
+    },
+
+    /**
+   * Toggle debugging for a player.
+   * @param {any} player
+   * @returns {boolean} true if now enabled, false if now disabled
+   */
     toggle(player) {
         if (enabled.has(player)) {
             enabled.delete(player);
@@ -27,48 +63,22 @@ const ActionDebugger = {
         return true;
     },
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> 692b0b2cf083bb1707ec8bd82cfa05d850cde162
     /**
-     * Logs a message to the player if debugging is enabled.
-     * @param {any} player
-     * @param {...any} parts
-     */
+   * Log a message to the player if debugging is enabled.
+   * @param {any} player
+   * @param {...any} parts
+   */
     log(player, ...parts) {
         if (!enabled.has(player)) return;
         try {
-            const msg = parts.map((p) => (typeof p === 'string' ? p : JSON.stringify(p))).join(' ');
-            if (typeof (player?.messageGame) === 'function') {
+            const msg = parts.map(toDebugPart).join(' ');
+            if (typeof player?.messageGame === 'function') {
                 player.messageGame(`[debug] ${msg}`);
             }
         } catch {
             // ignore
         }
     }
-<<<<<<< HEAD
-=======
-	/**
-	 * Logs a message to the player if debugging is enabled.
-	 * @param {any} player
-	 * @param {...any} parts
-	 */
-	log(player, ...parts) {
-		if (!enabled.has(player)) return;
-		try {
-			const msg = parts.map((p) => (typeof p === 'string' ? p : JSON.stringify(p))).join(' ');
-			if (typeof (player?.messageGame) === 'function') {
-				player.messageGame(`[debug] ${msg}`);
-			}
-		} catch {
-			// ignore
-		}
-	}
->>>>>>> d8d31ae5f202b7b6c67cb88b9e374730f336a694
-=======
->>>>>>> 692b0b2cf083bb1707ec8bd82cfa05d850cde162
 };
 
 export default ActionDebugger;
-
