@@ -514,6 +514,10 @@ async function promptAdvanced() {
             description: 'Update subtrees now, then start auto-commit/push watchers',
             value: 'update-and-sync'
         }, {
+            name: 'Show Subtree Status',
+            description: 'Display init state, push target, and local changes per subtree',
+            value: 'subtree-status'
+        }, {
             name: 'Initialize Subtrees (advanced/unsafe)',
             description: 'Convert existing directories to real git subtrees with backups',
             value: 'init-subtrees'
@@ -602,6 +606,36 @@ async function promptAdvanced() {
         // Immediately start watchers; keep in foreground
         running = false;
         await startAutoUpdateWatchers(subtreeRemotes as Subtree[], config.rev);
+    } else if (choice === 'subtree-status') {
+        // Ensure remotes exist for accurate reporting
+        for (const r of subtreeRemotes) ensureRemote(r.alias, r.url);
+
+        console.log('Subtree Status:\n');
+        for (const r of subtreeRemotes) {
+            const exists = fs.existsSync(r.prefix);
+            const empty = exists ? isDirEmpty(r.prefix) : true;
+            const init = isSubtreeInitialized(r.prefix);
+            const pushBranch = init ? config.rev : `auto/${r.prefix}/${config.rev}`;
+            let changes = '';
+            try {
+                changes = child_process.execSync(`git status --porcelain -- ${r.prefix}`, { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+            } catch { /* ignore */ }
+            console.log(`- ${r.prefix}:`);
+            console.log(`  remote: ${r.alias} (${r.url})`);
+            console.log(`  dir: ${exists ? (empty ? 'exists (empty)' : 'exists') : 'missing'}`);
+            console.log(`  initialized: ${init ? 'yes' : 'no'}`);
+            console.log(`  pull: ${init ? 'enabled' : 'skipped (not initialized)'}`);
+            console.log(`  push target: ${r.alias}/${pushBranch}`);
+            if (changes) {
+                const lines = changes.split('\n');
+                const show = lines.slice(0, 5).join('\n');
+                console.log('  pending changes:');
+                console.log(show + (lines.length > 5 ? '\n  ...' : ''));
+            } else {
+                console.log('  pending changes: none');
+            }
+            console.log('');
+        }
     } else if (choice === 'init-subtrees') {
         // Warn user
         const proceed = await confirm({
