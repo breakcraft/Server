@@ -3,6 +3,58 @@ import fs from 'fs';
 
 import { confirm, input, number, password, select } from '@inquirer/prompts';
 
+// Safer prompt wrappers with numeric/text fallbacks for environments where arrow-key
+// navigation freezes (e.g., some PowerShell/VS Code terminals)
+const isTTY = !!process.stdin.isTTY && !!process.stdout.isTTY;
+
+async function selectSafe<T extends string | number | boolean>(opts: { message: string; choices: { name: string; value: T; description?: string }[] }): Promise<T> {
+    try {
+        if (isTTY) {
+            return await select(opts, { clearPromptOnDone: true });
+        }
+    } catch {
+        // fall through to numeric input
+    }
+    // Fallback: print numbered choices and read a number
+    const lines = opts.choices.map((c, i) => `${i + 1}. ${c.name}${c.description ? ` — ${c.description}` : ''}`).join('\n');
+    const ans = await input({
+        message: `${opts.message}\n${lines}\nEnter choice number (default 1):`,
+        default: '1'
+    }, { clearPromptOnDone: true });
+    const idx = Math.max(1, parseInt((ans || '1').trim(), 10)) - 1;
+    const choice = opts.choices[idx] ?? opts.choices[0];
+    return choice.value;
+}
+
+async function confirmSafe(opts: { message: string; default?: boolean }): Promise<boolean> {
+    try {
+        if (isTTY) {
+            return await confirm(opts, { clearPromptOnDone: true });
+        }
+    } catch {}
+    const def = opts.default ?? false;
+    const ans = await input({ message: `${opts.message} (y/n, default ${def ? 'y' : 'n'}):`, default: def ? 'y' : 'n' }, { clearPromptOnDone: true });
+    const v = (ans || (def ? 'y' : 'n')).trim().toLowerCase();
+    return v.startsWith('y');
+}
+
+async function numberSafe(opts: { message: string; default?: number; required?: boolean }): Promise<number> {
+    try {
+        if (isTTY) {
+            const v = await number(opts as any, { clearPromptOnDone: true });
+            if (typeof v === 'number' && !Number.isNaN(v)) return v;
+        }
+    } catch {}
+    const def = opts.default !== undefined ? String(opts.default) : '';
+    const ans = await input({ message: `${opts.message}${def ? ` (default ${def})` : ''}:`, default: def }, { clearPromptOnDone: true });
+    const parsed = parseInt((ans || def).trim(), 10);
+    if (Number.isNaN(parsed)) {
+        if (opts.required) throw new Error('Numeric input required');
+        return opts.default as number;
+    }
+    return parsed;
+}
+
 // ----
 
 function setWebPort(port: number) {
@@ -76,37 +128,37 @@ function setWebsiteRegistration(state: boolean) {
 // ----
 
 async function promptWebPort() {
-    const port = await number({
+    const port = await numberSafe({
         message: 'Set http port',
         default: 80,
         required: true
     });
 
-    setWebPort(port!);
+    setWebPort(port);
 }
 
 async function promptNodeId() {
-    const id = await number({
+    const id = await numberSafe({
         message: 'Set world ID',
         default: 1,
         required: true
     });
 
-    setNodeId(id!);
+    setNodeId(id);
 }
 
 async function promptNodePort() {
-    const port = await number({
+    const port = await numberSafe({
         message: 'Set world port',
         default: 43594,
         required: true
     });
 
-    setNodePort(port!);
+    setNodePort(port);
 }
 
 async function promptNodeMembers() {
-    const choice = await confirm({
+    const choice = await confirmSafe({
         message: 'Enable members content',
         default: true
     });
@@ -115,17 +167,17 @@ async function promptNodeMembers() {
 }
 
 async function promptNodeXpRate() {
-    const rate = await number({
+    const rate = await numberSafe({
         message: 'Set world XP rate',
         default: 1,
         required: true
     });
 
-    setNodeXpRate(rate!);
+    setNodeXpRate(rate);
 }
 
 async function promptNodeProduction() {
-    const choice = await confirm({
+    const choice = await confirmSafe({
         message: 'Enable production mode',
         default: false
     });
@@ -134,7 +186,7 @@ async function promptNodeProduction() {
 }
 
 async function promptLogin() {
-    const choice = await confirm({
+    const choice = await confirmSafe({
         message: 'Do you want to use a login server to provide authentication?',
         default: true
     });
@@ -145,20 +197,20 @@ async function promptLogin() {
             default: 'localhost'
         });
 
-        const port = await number({
+        const port = await numberSafe({
             message: 'Host port',
             default: 43500,
             required: true
         });
 
-        setLoginServer(true, host, port!);
+        setLoginServer(true, host, port);
     } else {
         setLoginServer(false);
     }
 }
 
 async function promptFriend() {
-    const choice = await confirm({
+    const choice = await confirmSafe({
         message: 'Do you want to use a friend server to allow PMing?',
         default: true
     });
@@ -169,20 +221,20 @@ async function promptFriend() {
             default: 'localhost'
         });
 
-        const port = await number({
+        const port = await numberSafe({
             message: 'Host port',
             default: 45099,
             required: true
         });
 
-        setFriendServer(true, host, port!);
+        setFriendServer(true, host, port);
     } else {
         setFriendServer(false);
     }
 }
 
 async function promptLogger() {
-    const choice = await confirm({
+    const choice = await confirmSafe({
         message: 'Do you want to use a logger server to log player sessions?',
         default: true
     });
@@ -193,13 +245,13 @@ async function promptLogger() {
             default: 'localhost'
         });
 
-        const port = await number({
+        const port = await numberSafe({
             message: 'Host port',
             default: 43501,
             required: true
         });
 
-        setLoggerServer(true, host, port!);
+        setLoggerServer(true, host, port);
     } else {
         setLoggerServer(false);
     }
@@ -211,7 +263,7 @@ async function promptDatabase() {
         default: 'localhost'
     });
 
-    const port = await number({
+    const port = await numberSafe({
         message: 'Database host port',
         default: 3306,
         required: true
@@ -231,11 +283,11 @@ async function promptDatabase() {
         message: 'Database user password'
     });
 
-    setDatabase(host, port!, name, user, pass);
+    setDatabase(host, port, name, user, pass);
 }
 
 async function promptWebsiteRegistration() {
-    const autoregister = await confirm({
+    const autoregister = await confirmSafe({
         message: 'Do you want to automatically register accounts when they attempt to log in?',
         default: true
     });
@@ -284,7 +336,7 @@ async function startup() {
             value: 'advanced'
         });
 
-        const action = await select({
+        const action = await selectSafe({
             message: 'What would you like to do?',
             choices
         });
@@ -331,7 +383,7 @@ async function configureDevStack() {
     setWebsiteRegistration(false);
     setNodeProduction(false);
 
-    const backend = await select({
+    const backend = await selectSafe({
         message: 'Choose a database backend',
         choices: [
             {
@@ -418,7 +470,7 @@ async function configureMulti() {
 }
 
 async function advancedOptions() {
-    const advanced = await select({
+    const advanced = await selectSafe({
         message: 'Advanced options',
         pageSize: 24,
         choices: [
