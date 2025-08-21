@@ -59,16 +59,35 @@ function runOnOs(exec: string, cwd?: string) {
     });
 }
 
-let config = {
-    rev: 'unset'
+type ServerConfig = {
+    rev: string;
+    autoPushOrigin?: boolean;
+    pollIntervalMs?: number;
+    debounceMs?: number;
+    pullIntervalMs?: number;
+};
+
+const DEFAULTS = {
+    autoPushOrigin: true,
+    pollIntervalMs: 1500,
+    debounceMs: 1500,
+    pullIntervalMs: 60000
+};
+
+let config: ServerConfig = {
+    rev: 'unset',
+    autoPushOrigin: DEFAULTS.autoPushOrigin,
+    pollIntervalMs: DEFAULTS.pollIntervalMs,
+    debounceMs: DEFAULTS.debounceMs,
+    pullIntervalMs: DEFAULTS.pullIntervalMs
 };
 
 const SERVER_REMOTE_URL = 'https://github.com/breakcraft/Server.git';
 
 let running = true;
-const POLL_INTERVAL_MS = 1500;
-const DEBOUNCE_MS = 1500;
-const PULL_INTERVAL_MS = 60000; // periodically sync from upstream
+let POLL_INTERVAL_MS = DEFAULTS.pollIntervalMs;
+let DEBOUNCE_MS = DEFAULTS.debounceMs;
+let PULL_INTERVAL_MS = DEFAULTS.pullIntervalMs; // periodically sync from upstream
 
 type Subtree = { prefix: string; alias: string; url: string };
 
@@ -378,7 +397,48 @@ async function handleCliArgs(): Promise<boolean> {
     if (!fs.existsSync('server.json')) {
         await promptConfig();
     }
-    config = JSON.parse(fs.readFileSync('server.json', 'utf8'));
+    try {
+        const raw = fs.readFileSync('server.json', 'utf8');
+        const parsed = JSON.parse(raw);
+        config = { ...config, ...parsed } as ServerConfig;
+    } catch {}
+
+    // Apply CLI overrides for auto-push and intervals
+    const getNumArg = (name: string): number | undefined => {
+        for (let i = 0; i < argv.length; i++) {
+            const a = argv[i];
+            if (a === `--${name}` && i + 1 < argv.length) return Number(argv[i + 1]);
+            if (a.startsWith(`--${name}=`)) return Number(a.split('=')[1]);
+        }
+        return undefined;
+    };
+    if (argv.includes('--origin-push')) config.autoPushOrigin = true;
+    if (argv.includes('--no-origin-push')) config.autoPushOrigin = false;
+    const poll = getNumArg('poll-ms');
+    const deb = getNumArg('debounce-ms');
+    const pull = getNumArg('pull-ms');
+    if (typeof poll === 'number' && !Number.isNaN(poll) && poll > 0) config.pollIntervalMs = poll;
+    if (typeof deb === 'number' && !Number.isNaN(deb) && deb > 0) config.debounceMs = deb;
+    if (typeof pull === 'number' && !Number.isNaN(pull) && pull > 0) config.pullIntervalMs = pull;
+    POLL_INTERVAL_MS = Number(config.pollIntervalMs ?? DEFAULTS.pollIntervalMs);
+    DEBOUNCE_MS = Number(config.debounceMs ?? DEFAULTS.debounceMs);
+    PULL_INTERVAL_MS = Number(config.pullIntervalMs ?? DEFAULTS.pullIntervalMs);
+
+    // Help output
+    if (argv.includes('--help') || argv.includes('-h')) {
+        console.log(`Usage: bun run start.ts [options]\n\n` +
+            `Options:\n` +
+            `  --status                 Show subtree status and exit\n` +
+            `  --start-watchers         Start auto-commit/push watchers (foreground)\n` +
+            `  --update-and-sync|--auto Stash, update subtrees, status, start watchers\n` +
+            `  --origin-push            Force pushing Server repo to origin\n` +
+            `  --no-origin-push         Disable pushing Server repo to origin\n` +
+            `  --poll-ms <n>            Poll interval for local change detection (ms)\n` +
+            `  --debounce-ms <n>        Debounce interval for auto-commit (ms)\n` +
+            `  --pull-ms <n>            Upstream subtree pull interval (ms)\n` +
+            `  -h, --help               Show this help\n`);
+        return true;
+    }
 
     // Non-interactive: just show subtree status
     if (argv.includes('--status')) {
@@ -424,7 +484,20 @@ async function main() {
         await promptConfig();
     }
 
-    config = JSON.parse(fs.readFileSync('server.json', 'utf8'));
+    try {
+        const raw = fs.readFileSync('server.json', 'utf8');
+        const parsed = JSON.parse(raw);
+        config = { ...config, ...parsed } as ServerConfig;
+        // Fill missing defaults and persist for visibility
+        if (typeof config.autoPushOrigin !== 'boolean') config.autoPushOrigin = DEFAULTS.autoPushOrigin;
+        if (typeof config.pollIntervalMs !== 'number') config.pollIntervalMs = DEFAULTS.pollIntervalMs;
+        if (typeof config.debounceMs !== 'number') config.debounceMs = DEFAULTS.debounceMs;
+        if (typeof config.pullIntervalMs !== 'number') config.pullIntervalMs = DEFAULTS.pullIntervalMs;
+        fs.writeFileSync('server.json', JSON.stringify(config, null, 2));
+    } catch {}
+    POLL_INTERVAL_MS = Number(config.pollIntervalMs ?? DEFAULTS.pollIntervalMs);
+    DEBOUNCE_MS = Number(config.debounceMs ?? DEFAULTS.debounceMs);
+    PULL_INTERVAL_MS = Number(config.pullIntervalMs ?? DEFAULTS.pullIntervalMs);
 
     // Ensure subtree directories exist (they should, as part of this repo)
     const requiredDirs = ['engine', 'content', 'client', 'javaclient'];
