@@ -1,35 +1,30 @@
-name: Verify Engine Code
+﻿name: Verify Engine Code
 
 on:
   pull_request:
   push:
     paths:
-      - ".github/workflows/engine.yml"
-      - "engine/src/**"
-      - "engine/tools/**"
+    - '.github/workflows/engine.yml'
+    - 'src/**'
+    - 'tools/**'
   workflow_dispatch:
+
 
 jobs:
   verify:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: engine
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
+    - uses: oven-sh/setup-bun@v2
+      with:
+        bun-version: latest
 
-      - name: Install deps
-        run: bun install
+    - run: bun install
 
-      - name: Lint
-        run: bun run lint
+    - name: Lint
+      run: bun run lint
 
-      - name: Compile
-        run: bun run tsc
+    - name: Compile
+      run: bun run tsc
