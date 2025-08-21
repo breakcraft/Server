@@ -1,0 +1,21 @@
+name: Sync Engine Workflow
+
+on:
+  push:
+    paths:
+      - 'engine/.github/workflows/engine.yml'
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Copy engine workflow to root
+        run: |
+          mkdir -p .github/workflows
+          cp engine/.github/workflows/engine.yml .github/workflows/engine.yml
+      - name: Commit and push copy
+        uses: stefanzweifel/git-auto-commit-action@v4
+        with:
+          commit_message: "ci: sync engine workflow to root"
+          branch: "${{ github.ref_name }}"

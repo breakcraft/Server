@@ -1,21 +1,48 @@
-name: Sync Engine Workflow
+name: Verify Engine Code
 
 on:
+  pull_request:
   push:
     paths:
       - 'engine/.github/workflows/engine.yml'
+      - 'engine/src/**'
+      - 'engine/tools/**'
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: engine
 
 jobs:
-  sync:
+  verify:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - name: Copy engine workflow to root
-        run: |
-          mkdir -p .github/workflows
-          cp engine/.github/workflows/engine.yml .github/workflows/engine.yml
-      - name: Commit and push copy
-        uses: stefanzweifel/git-auto-commit-action@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
-          commit_message: "ci: sync engine workflow to root"
-          branch: "${{ github.ref_name }}"
+          submodules: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Lint
+        run: |
+          if [ "$(npm pkg get scripts.lint 2>/dev/null)" != "undefined" ]; then
+            bun run lint
+          else
+            echo "no lint script"
+          fi
+
+      - name: Compile
+        run: bun run tsc
