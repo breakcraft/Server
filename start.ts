@@ -136,7 +136,17 @@ function listSubtreeChanges(prefix: string): string {
 }
 
 function showSubtreeStatus(remotes: Subtree[], rev: string) {
+    const autoPush = config.autoPushOrigin === false ? 'disabled' : 'enabled';
+    const poll = typeof config.pollIntervalMs === 'number' ? config.pollIntervalMs : DEFAULTS.pollIntervalMs;
+    const deb = typeof config.debounceMs === 'number' ? config.debounceMs : DEFAULTS.debounceMs;
+    const pull = typeof config.pullIntervalMs === 'number' ? config.pullIntervalMs : DEFAULTS.pullIntervalMs;
     console.log('Subtree Status:\n');
+    console.log(`Config:`);
+    console.log(`  rev: ${rev}`);
+    console.log(`  origin auto-push: ${autoPush}`);
+    console.log(`  poll interval: ${poll}ms`);
+    console.log(`  debounce: ${deb}ms`);
+    console.log(`  upstream pull interval: ${pull}ms\n`);
     for (const r of remotes) {
         const exists = fs.existsSync(r.prefix);
         const empty = exists ? isDirEmpty(r.prefix) : true;
@@ -618,6 +628,10 @@ async function promptAdvanced() {
             description: 'Display init state, push target, and local changes per subtree',
             value: 'subtree-status'
         }, {
+            name: 'Sync Settings',
+            description: 'Configure auto-push and polling intervals',
+            value: 'sync-settings'
+        }, {
             name: 'Initialize Subtrees (advanced/unsafe)',
             description: 'Convert existing directories to real git subtrees with backups',
             value: 'init-subtrees'
@@ -736,6 +750,8 @@ async function promptAdvanced() {
             }
             console.log('');
         }
+    } else if (choice === 'sync-settings') {
+        await promptSyncSettings();
     } else if (choice === 'init-subtrees') {
         // Warn user
         const proceed = await confirm({
@@ -1022,6 +1038,55 @@ async function promptAdvanced() {
             }
         }
     }
+}
+
+async function promptSyncSettings() {
+    // Load config & apply defaults for prompt values
+    try {
+        const raw = fs.readFileSync('server.json', 'utf8');
+        const parsed = JSON.parse(raw);
+        config = { ...config, ...parsed } as ServerConfig;
+    } catch {}
+    const currentAuto = typeof config.autoPushOrigin === 'boolean' ? config.autoPushOrigin : DEFAULTS.autoPushOrigin;
+    const currentPoll = typeof config.pollIntervalMs === 'number' ? config.pollIntervalMs : DEFAULTS.pollIntervalMs;
+    const currentDebounce = typeof config.debounceMs === 'number' ? config.debounceMs : DEFAULTS.debounceMs;
+    const currentPull = typeof config.pullIntervalMs === 'number' ? config.pullIntervalMs : DEFAULTS.pullIntervalMs;
+
+    const auto = await confirm({
+        message: 'Auto-push Server repo to origin after syncs?',
+        default: currentAuto
+    }, { clearPromptOnDone: true });
+
+    const poll = await number({
+        message: 'Poll interval (ms) for local subtree changes',
+        default: currentPoll,
+        validate: (v: any) => (Number(v) > 0) || 'Enter a positive number'
+    }, { clearPromptOnDone: true });
+
+    const deb = await number({
+        message: 'Debounce interval (ms) for auto-commit',
+        default: currentDebounce,
+        validate: (v: any) => (Number(v) > 0) || 'Enter a positive number'
+    }, { clearPromptOnDone: true });
+
+    const pull = await number({
+        message: 'Upstream pull interval (ms)',
+        default: currentPull,
+        validate: (v: any) => (Number(v) > 0) || 'Enter a positive number'
+    }, { clearPromptOnDone: true });
+
+    config.autoPushOrigin = !!auto;
+    config.pollIntervalMs = Number(poll) || DEFAULTS.pollIntervalMs;
+    config.debounceMs = Number(deb) || DEFAULTS.debounceMs;
+    config.pullIntervalMs = Number(pull) || DEFAULTS.pullIntervalMs;
+    fs.writeFileSync('server.json', JSON.stringify(config, null, 2));
+
+    // Apply new runtime timers immediately
+    POLL_INTERVAL_MS = Number(config.pollIntervalMs);
+    DEBOUNCE_MS = Number(config.debounceMs);
+    PULL_INTERVAL_MS = Number(config.pullIntervalMs);
+
+    console.log('Sync settings saved to server.json');
 }
 
 ensureRemote('origin', SERVER_REMOTE_URL);
