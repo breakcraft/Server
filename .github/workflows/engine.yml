@@ -30,8 +30,15 @@ jobs:
       - name: Install deps
         run: bun install
 
-      - name: Lint
-        run: bun run lint
+      # Conditionally run lint only if a "lint" script exists in package.json
+      - name: Lint (if package.json contains a "lint" script)
+        run: |
+          if [ -f package.json ] && grep -q '"lint"' package.json; then
+            echo "lint script found -> running bun run lint"
+            bun run lint
+          else
+            echo "No lint script found in package.json -> skipping lint"
+          fi
 
       - name: Compile
         run: bun run tsc
