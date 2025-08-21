@@ -2,3 +2,4 @@
 - Enhanced periodic pull logic to commit subtree merges and push to origin when updates occur.
 - Ignored local virtual environment directory in version control.
 - Added Node 22 bun-powered engine CI and synced workflow to repository root with auto-sync action.
+- Added script to manually sync engine workflow to root.
