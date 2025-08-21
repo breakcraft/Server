@@ -1,8 +1,14 @@
 {
   "name": "server",
   "private": true,
+  "scripts": {
+    "lint": "eslint \"engine/**/*.{ts,tsx}\""
+  },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "eslint": "^9.0.0",
+    "@typescript-eslint/parser": "^5.0.0",
+    "@typescript-eslint/eslint-plugin": "^5.0.0"
   },
   "peerDependencies": {
     "typescript": "^5"
