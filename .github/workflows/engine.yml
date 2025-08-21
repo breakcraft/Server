@@ -1,18 +1,35 @@
-name: Docker Image CI
+name: Verify Engine Code
 
 on:
-  push:
-    branches: [ "Another-Clean-Base-To-Experiment-On" ]
   pull_request:
-    branches: [ "Another-Clean-Base-To-Experiment-On" ]
+  push:
+    paths:
+      - ".github/workflows/engine.yml"
+      - "engine/src/**"
+      - "engine/tools/**"
+  workflow_dispatch:
 
 jobs:
-
-  build:
-
+  verify:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: engine
 
     steps:
-    - uses: actions/checkout@v4
-    - name: Build the Docker image
-      run: docker build . --file Dockerfile --tag my-image-name:$(date +%s)
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install deps
+        run: bun install
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Compile
+        run: bun run tsc
