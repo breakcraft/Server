@@ -13,6 +13,11 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    # Run commands from repo root because package.json is at the root
+    defaults:
+      run:
+        working-directory: .
+
     services:
       mysql:
         image: mysql:8
@@ -21,48 +26,64 @@ jobs:
           MYSQL_DATABASE: lostcity
         ports:
           - 3306:3306
-        # Ensure MySQL is ready before running Prisma commands
         options: >-
           --health-cmd="mysqladmin ping -h 127.0.0.1 -u root -ppassword || exit 1"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
 
-    defaults:
-      run:
-        working-directory: engine
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          submodules: false
+          submodules: false  # avoids stale submodule noise in post-job cleanup
+          fetch-depth: 1
 
-      - name: Setup Node
+      - name: Detect npm lockfile
+        id: lock
+        run: |
+          if [ -f package-lock.json ]; then
+            echo "has_lock=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_lock=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Node 22 with cache only when lockfile exists
+      - name: Setup Node 22 (with npm cache)
+        if: steps.lock.outputs.has_lock == 'true'
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
-          cache: "npm"
-          cache-dependency-path: "engine/package-lock.json"
+          node-version: '22.x'
+          cache: 'npm'
+          cache-dependency-path: 'package-lock.json'
+
+      - name: Setup Node 22 (no cache)
+        if: steps.lock.outputs.has_lock != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
 
       - name: Install dependencies
-        run: npm ci || npm i
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm i
+          fi
+
+      - name: Prisma version (debug)
+        run: npx prisma --version
 
       - name: Generate Prisma Client
-        run: npx prisma generate
+        run: npx prisma generate --schema engine/prisma/singleworld/schema.prisma
 
-      # For CI verification a destructive reset is OK on ephemeral DBs.
-      # If you later switch to shared/staging/prod DBs, replace with `prisma migrate deploy`.
+      # Ephemeral CI DB; if you later point to shared/staging, use `prisma migrate deploy` instead of reset
       - name: Run Singleworld Migrations (reset DB)
         env:
           DATABASE_URL: "mysql://root:password@localhost:3306/lostcity"
-        run: |
-          set -e
-          npx prisma migrate reset --schema prisma/singleworld/schema.prisma --force --skip-seed
+        run: npx prisma migrate reset --schema engine/prisma/singleworld/schema.prisma --force --skip-seed
 
       - name: Run Multiworld Migrations (reset DB)
         env:
           DATABASE_URL: "mysql://root:password@localhost:3306/lostcity"
-        run: |
-          set -e
-          npx prisma migrate reset --schema prisma/multiworld/schema.prisma --force --skip-seed
+        run: npx prisma migrate reset --schema engine/prisma/multiworld/schema.prisma --force --skip-seed
