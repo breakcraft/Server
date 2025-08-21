@@ -63,6 +63,8 @@ let config = {
     rev: 'unset'
 };
 
+const SERVER_REMOTE_URL = 'https://github.com/breakcraft/Server.git';
+
 let running = true;
 const POLL_INTERVAL_MS = 1500;
 const DEBOUNCE_MS = 1500;
@@ -313,7 +315,22 @@ async function startAutoUpdateWatchers(remotes: Subtree[], branch: string) {
                 pulling.add(r.prefix);
                 try {
                     if (initialized.get(r.prefix)) {
+                        const before = child_process.execSync('git rev-parse HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
                         subtreePull(r.prefix, r.alias, branch);
+                        try {
+                            child_process.execSync(`git commit -am "chore(${r.prefix}): merge updates from ${r.alias}/${branch}"`, { stdio: 'inherit' });
+                        } catch { /* nothing to commit */ }
+                        const after = child_process.execSync('git rev-parse HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+                        if (before !== after) {
+                            let push = true;
+                            try {
+                                const remoteHead = child_process.execSync(`git rev-parse origin/${branch}`, { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+                                push = remoteHead !== after;
+                            } catch { /* remote branch missing */ }
+                            if (push) {
+                                child_process.execSync(`git push origin ${branch}`, { stdio: 'inherit' });
+                            }
+                        }
                     } else {
                         if (!warnedNotInit.has(r.prefix)) {
                             console.log(`Skipping periodic pull for ${r.prefix}: subtree not initialized.`);
@@ -1006,6 +1023,8 @@ async function promptAdvanced() {
         }
     }
 }
+
+ensureRemote('origin', SERVER_REMOTE_URL);
 
 try {
     const handled = await handleCliArgs();
