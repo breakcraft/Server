@@ -1,44 +1,21 @@
-name: Verify Engine Code
+name: Sync Engine Workflow
 
 on:
-  pull_request:
   push:
-    branches: ["Another-Clean-Base-To-Experiment-On"]
     paths:
-      - ".github/workflows/engine.yml"
-      - "engine/**"
-  workflow_dispatch:
+      - 'engine/.github/workflows/engine.yml'
 
 jobs:
-  verify:
+  sync:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: engine
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: false
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Install deps
-        run: bun install
-
-      # Conditionally run lint only if a "lint" script exists in package.json
-      - name: Lint (if package.json contains a "lint" script)
+      - uses: actions/checkout@v4
+      - name: Copy engine workflow to root
         run: |
-          if [ -f package.json ] && grep -q '"lint"' package.json; then
-            echo "lint script found -> running bun run lint"
-            bun run lint
-          else
-            echo "No lint script found in package.json -> skipping lint"
-          fi
-
-      - name: Compile
-        run: bun run tsc
+          mkdir -p .github/workflows
+          cp engine/.github/workflows/engine.yml .github/workflows/engine.yml
+      - name: Commit and push copy
+        uses: stefanzweifel/git-auto-commit-action@v4
+        with:
+          commit_message: "ci: sync engine workflow to root"
+          branch: "${{ github.ref_name }}"
