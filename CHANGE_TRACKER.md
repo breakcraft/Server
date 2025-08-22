@@ -4,4 +4,5 @@
 - Added Node 22 bun-powered engine CI and synced workflow to repository root with auto-sync action.
 - Added script to manually sync engine workflow to root.
 - Introduced blink-walk cheat toggle and instant teleport handling for walk-clicks.
-- TODO: Update ESLint configuration; `npm run lint` fails due to missing eslint.config.js.
+- Fixed blink-walk so enabled players teleport instead of walking by handling MoveClick.
+- Added eslint.config.js in new flat-config format to restore linting.
