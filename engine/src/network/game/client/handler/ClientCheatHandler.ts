@@ -89,6 +89,7 @@ export default class ClientCheatHandler extends MessageHandler<ClientCheat> {
             if (player.staffModLevel < 4) return false;
             const cheatFlags = getCheat(player);
             cheatFlags.maxHitDebug = !cheatFlags.maxHitDebug;
+            player.maxHitDebug = cheatFlags.maxHitDebug;
             player.messageGame(
                 cheatFlags.maxHitDebug
                     ? 'Maxhit debug on, you will now always hit your max hit.'

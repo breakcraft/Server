@@ -336,6 +336,8 @@ export default class Player extends PathingEntity {
     allowDesign: boolean = false;
     afkEventReady: boolean = false;
     moveClickRequest: boolean = false;
+    /** When true, combat rolls always deal the player's maximum hit. */
+    maxHitDebug: boolean = false;
 
     requestLogout: boolean = false;
     requestIdleLogout: boolean = false;

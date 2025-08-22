@@ -35,7 +35,12 @@ const NumberOps: CommandHandlers = {
 
     [ScriptOpcode.RANDOMINC]: state => {
         const a = state.popInt();
-        state.pushInt(Math.random() * (a + 1));
+        const player = state._activePlayer;
+        if (player?.maxHitDebug) {
+            state.pushInt(a);
+        } else {
+            state.pushInt(Math.random() * (a + 1));
+        }
     },
 
     [ScriptOpcode.INTERPOLATE]: state => {

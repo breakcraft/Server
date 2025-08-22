@@ -6,3 +6,4 @@
 - Introduced blink-walk cheat toggle and instant teleport handling for walk-clicks.
 - Fixed blink-walk so enabled players teleport instead of walking by handling MoveClick.
 - Added eslint.config.js in new flat-config format to restore linting.
+- Implemented ::maxhit cheat to force players to always deal their maximum hit.
