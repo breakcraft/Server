@@ -7,3 +7,5 @@
 - Fixed blink-walk so enabled players teleport instead of walking by handling MoveClick.
 - Added eslint.config.js in new flat-config format to restore linting.
 - Fixed web server URL creation to fall back to the Host header when req.url is undefined and added a unit test.
+- Added fatal error event emission to Logger and registered cleanup handlers in unpack tools to close caches before exiting.
+- TODO: Expand fatal error cleanup listeners to remaining modules where resources are allocated.
