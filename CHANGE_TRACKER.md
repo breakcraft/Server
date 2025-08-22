@@ -3,3 +3,5 @@
 - Ignored local virtual environment directory in version control.
 - Added Node 22 bun-powered engine CI and synced workflow to repository root with auto-sync action.
 - Added script to manually sync engine workflow to root.
+- Introduced blink-walk cheat toggle and instant teleport handling for walk-clicks.
+- TODO: Update ESLint configuration; `npm run lint` fails due to missing eslint.config.js.
