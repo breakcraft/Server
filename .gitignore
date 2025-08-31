@@ -3,3 +3,7 @@ node_modules/
 
 server.json
 .venv/
+CUserslionkAppDataLocalvscode-sqltoolsData.node-runtime
+donotcommitthisfileitisasecretsessionwithcodex.txt
+.vscode/extensions.json
+.devcontainer/devcontainer.json
