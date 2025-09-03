@@ -3,4 +3,11 @@
         "**/.git": true,
         "**/node_modules": true
     },
+    "markdownlint.ignore": [
+        "engine/src/3rdparty/**"
+    ],
+    "files.associations": {
+        "engine/src/3rdparty/**/LICENSE": "plaintext",
+        "engine/src/3rdparty/**/README.md": "plaintext"
+    }
 }
