@@ -4,3 +4,6 @@ node_modules/
 server.json
 .venv/
 *.node-runtime
+*.txt
+.vscode/extensions.json
+.devcontainer/devcontainer.json
