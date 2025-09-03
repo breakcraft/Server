@@ -7,3 +7,4 @@ server.json
 *.txt
 .vscode/extensions.json
 .devcontainer/devcontainer.json
+*log

@@ -1,14 +1,23 @@
 {
-    "search.exclude": {
-        "**/.git": true,
-        "**/node_modules": true
-    },
-    "markdownlint.ignore": [
-        "engine/src/3rdparty/**"
-    ],
-    "files.associations": {
-        "engine/src/3rdparty/**/LICENSE": "plaintext",
-        "engine/src/3rdparty/**/README.md": "plaintext"
-    },
-    "java.configuration.updateBuildConfiguration": "automatic"
+  "search.exclude": {
+    "**/.git": true,
+    "**/node_modules": true
+  },
+  "markdownlint.ignore": [
+    "engine/src/3rdparty/**"
+  ],
+  "files.associations": {
+    "engine/src/3rdparty/**/LICENSE": "plaintext",
+    "engine/src/3rdparty/**/README.md": "plaintext"
+  },
+  "java.configuration.runtimes": [
+    {
+      "name": "JavaSE-21",
+      "path": "C:\\Program Files\\Java\\jdk-21"
+    }
+  ],
+  "java.import.gradle.java.home": "C:\\Program Files\\Java\\jdk-21",
+  "java.jdt.ls.java.home": "C:\\Program Files\\Java\\jdk-21",
+  "java.configuration.updateBuildConfiguration": "automatic"
 }
+
