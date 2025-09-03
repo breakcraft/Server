@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { ExitPromptError } from '@inquirer/core';
-import { confirm, input, number, password, select } from '@inquirer/prompts';
+import { confirm, input, number, select } from '@inquirer/prompts';
 
 // Subtree configuration
 const subtreeRemotes = [
@@ -39,12 +39,8 @@ function subtreePull(prefix: string, alias: string, branch: string) {
         // If the subtree was never added, attempt an initial add only if directory is missing or empty
         const exists = fs.existsSync(prefix);
         if (!exists || isDirEmpty(prefix)) {
-            try {
-                child_process.execSync(`git subtree add --prefix=${prefix} ${alias} ${branch} --squash`, { stdio: 'inherit' });
-                return;
-            } catch (e2) {
-                throw e2;
-            }
+            child_process.execSync(`git subtree add --prefix=${prefix} ${alias} ${branch} --squash`, { stdio: 'inherit' });
+            return;
         }
         throw e;
     }
@@ -266,7 +262,7 @@ async function startAutoUpdateWatchers(remotes: Subtree[], branch: string) {
         initialized.set(r.prefix, isSubtreeInitialized(r.prefix));
     }
 
-    async function handleSubtree(prefix: string, alias: string, url: string) {
+    async function handleSubtree(prefix: string, alias: string) {
         if (pulling.has(prefix)) return; // skip while pulling to avoid conflicts
         let status = '';
         try {
@@ -329,7 +325,7 @@ async function startAutoUpdateWatchers(remotes: Subtree[], branch: string) {
     }
 
     const interval: ReturnType<typeof setInterval> = setInterval(() => {
-        for (const r of remotes) handleSubtree(r.prefix, r.alias, r.url);
+        for (const r of remotes) handleSubtree(r.prefix, r.alias);
     }, POLL_INTERVAL_MS);
 
     // Periodic upstream pulls with temporary stash if needed
@@ -383,7 +379,6 @@ async function startAutoUpdateWatchers(remotes: Subtree[], branch: string) {
     void pullTick();
     const pullInterval: ReturnType<typeof setInterval> = setInterval(() => { void pullTick(); }, PULL_INTERVAL_MS);
 
-    // eslint-disable-next-line @typescript-eslint/no-empty-function
     await new Promise<void>(() => {});
     clearInterval(interval);
     clearInterval(pullInterval);
@@ -406,7 +401,7 @@ async function handleCliArgs(): Promise<boolean> {
     // Apply CLI overrides for auto-push and intervals
     const getNumArg = (name: string): number | undefined => {
         for (let i = 0; i < argv.length; i++) {
-            const a = argv[i];
+            const a = argv[i] ?? '';
             if (a === `--${name}` && i + 1 < argv.length) return Number(argv[i + 1]);
             if (a.startsWith(`--${name}=`)) return Number(a.split('=')[1]);
         }
@@ -593,6 +588,7 @@ async function main() {
             }
         }
 
+        let enableWatchFlag = false;
         try {
             // Ensure remotes exist, then pull each subtree on configured branch
             for (const r of subtreeRemotes) ensureRemote(r.alias, r.url);
@@ -631,11 +627,12 @@ async function main() {
                 message: 'Enable file watchers to auto-commit & push subtree changes on save?',
                 default: false
             }, { clearPromptOnDone: true });
-            if (enableWatch) {
-                running = false; // stop returning to the main menu
-                await startAutoUpdateWatchers(subtreeRemotes, config.rev);
-                return; // not reached unless watchers stop
-            }
+            enableWatchFlag = !!enableWatch;
+        }
+        if (enableWatchFlag) {
+            running = false; // stop returning to the main menu
+            await startAutoUpdateWatchers(subtreeRemotes, config.rev);
+            return; // not reached unless watchers stop
         }
     } else if (choice === 'web') {
         if (process.platform === 'win32' || process.platform === 'darwin') {
@@ -942,7 +939,7 @@ async function promptAdvanced() {
             // Attempt subtree add
             try {
                 child_process.execSync(`git subtree add --prefix=${prefix} ${r.alias} ${config.rev} --squash`, { stdio: 'inherit' });
-            } catch (e) {
+            } catch {
                 console.log(`${prefix}: subtree add failed.`);
                 // Restore backup if we moved it
                 if (fs.existsSync(backupDir) && !fs.existsSync(prefix)) {
@@ -1013,9 +1010,9 @@ async function promptAdvanced() {
                 child_process.execSync(`git add -A ${subtree}`, { stdio: 'inherit' });
                 try {
                     child_process.execSync(`git commit -m "${msg.replace(/"/g, '\\"')}"`, { stdio: 'inherit' });
-                } catch (e) {
-                    console.log('No commit created (possibly nothing new to commit). Continuing...');
-                }
+            } catch {
+                console.log('No commit created (possibly nothing new to commit). Continuing...');
+            }
             }
         } else {
             console.log(`No local changes detected under ${subtree}.`);
@@ -1025,7 +1022,7 @@ async function promptAdvanced() {
         console.log(`Pushing '${subtree}' to ${remote.alias}/${config.rev}...`);
         try {
             child_process.execSync(`git subtree push --prefix=${subtree} ${remote.alias} ${config.rev}`, { stdio: 'inherit' });
-        } catch (e) {
+        } catch {
             // Provide a helpful hint if push fails (e.g., history too complex)
             console.log('Subtree push failed. Trying split + manual push...');
             try {
@@ -1035,7 +1032,7 @@ async function promptAdvanced() {
                 child_process.execSync(`git push ${remote.alias} ${tempName}:${config.rev}`, { stdio: 'inherit' });
                 // Clean up temp branch locally
                 child_process.execSync(`git branch -D ${tempName}`, { stdio: 'inherit' });
-            } catch (e2) {
+            } catch {
                 console.log('Manual split/push also failed. Please inspect your git history or push manually.');
             }
         }

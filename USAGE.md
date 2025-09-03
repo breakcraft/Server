@@ -1,4 +1,4 @@
-Server CLI Usage Guide
+# Server CLI Usage Guide
 
 Overview
 
@@ -82,4 +82,3 @@ Notes
 - Pushing to `origin` requires your local branch to have permission and a configured remote; errors are logged and ignored.
 - If a subtree isn’t initialized, pushes go to an `auto/<prefix>/<rev>` branch on the subtree remote.
 - Use Ctrl+C to stop watchers; any temporary stashes created during periodic pulls are popped afterward.
-
