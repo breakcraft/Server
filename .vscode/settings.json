@@ -1,4 +1,6 @@
 {
+  // Workspace VS Code settings
+  "editor.accessibilitySupport": "off",
   "search.exclude": {
     "**/.git": true,
     "**/node_modules": true
