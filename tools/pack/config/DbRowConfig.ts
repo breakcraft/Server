@@ -85,28 +85,19 @@ export function packDbRowConfigs(configs: Map<string, ConfigLine[]>): { client: 
     const client: PackedData = new PackedData(DbRowPack.size);
     const server: PackedData = new PackedData(DbRowPack.size);
 
-    for (let id = 0; id < DbRowPack.size; id++) {
-        const debugname = DbRowPack.getById(id);
+    for (let i = 0; i < DbRowPack.size; i++) {
+        const debugname = DbRowPack.getById(i);
         const config = configs.get(debugname)!;
 
         let table = null;
+        const data = [];
+
         for (let j = 0; j < config.length; j++) {
             const { key, value } = config[j];
 
             if (key === 'table') {
                 table = DbTableType.get(value as number);
-            }
-        }
-
-        if (!table) {
-            throw packStepError(debugname, 'No table defined for dbrow');
-        }
-
-        const data = [];
-        for (let j = 0; j < config.length; j++) {
-            const { key, value } = config[j];
-
-            if (key === 'data') {
+            } else if (key === 'data') {
                 // values have a few rules:
                 // 1) the format is data=column,value,value,value,value,value
                 // 2) the first value is the column name
@@ -120,7 +111,11 @@ export function packDbRowConfigs(configs: Map<string, ConfigLine[]>): { client: 
             }
         }
 
-        if (data.length) {
+        if (data.length && !table) {
+            throw packStepError(debugname, 'No table defined in dbrow config');
+        }
+
+        if (data.length && table) {
             server.p1(3);
 
             server.p1(table.types.length);
@@ -135,15 +130,6 @@ export function packDbRowConfigs(configs: Map<string, ConfigLine[]>): { client: 
 
                 const columnName = table.columnNames[i];
                 const fields = data.filter(d => d.column === columnName);
-                const props = table.props[i];
-
-                if ((props & DbTableType.REQUIRED) !== 0 && !fields.length) {
-                    throw packStepError(debugname, `${columnName} column is marked REQUIRED, please add data for it`);
-                }
-
-                if ((props & DbTableType.LIST) === 0 && fields.length > 1) {
-                    throw packStepError(debugname, `${columnName} column has multiple data values but is not marked as LIST`);
-                }
 
                 server.p1(fields.length);
                 for (let j = 0; j < fields.length; j++) {
@@ -167,8 +153,10 @@ export function packDbRowConfigs(configs: Map<string, ConfigLine[]>): { client: 
             server.p1(255);
         }
 
-        server.p1(4);
-        server.p2(table.id);
+        if (table) {
+            server.p1(4);
+            server.p2(table.id);
+        }
 
         server.p1(250);
         server.pjstr(debugname);
