@@ -295,8 +295,6 @@ export class Client extends GameShell {
     private splitPrivateChat: number = 0;
     private chatEffects: number = 0;
     private chatTyped: string = '';
-    private chatHistory: string[] = [];
-    private chatHistoryIndex: number = 0;
     private viewportHoveredInterfaceIndex: number = 0;
     private sidebarHoveredInterfaceIndex: number = 0;
     private chatHoveredInterfaceIndex: number = 0;
@@ -1027,7 +1025,7 @@ export class Client extends GameShell {
         this.dragCycles = 0;
     }
 
-    async refresh() {
+    refresh() {
         this.redrawFrame = true;
     }
 
@@ -2541,8 +2539,6 @@ export class Client extends GameShell {
                     mod = true;
                 }
 
-                // TODO: Use mod variable for special moderator styling/features
-
                 if ((type === 3 || type === 7) && (type === 7 || this.chatPrivateMode === 0 || (this.chatPrivateMode === 1 && this.isFriend(sender)))) {
                     const y: number = 329 - line * 13;
 
@@ -2598,8 +2594,6 @@ export class Client extends GameShell {
                 sender = sender.substring(5);
                 mod = true;
             }
-
-            // TODO: Use mod variable for special moderator styling/features
 
             if (type === 0) {
                 line++;
@@ -3485,8 +3479,6 @@ export class Client extends GameShell {
                             this.redrawChatback = true;
                         }
 
-                        
-
                         if (key === 8 && this.chatTyped.length > 0) {
                             this.chatTyped = this.chatTyped.substring(0, this.chatTyped.length - 1);
                             this.redrawChatback = true;
@@ -3610,17 +3602,6 @@ export class Client extends GameShell {
                                     this.out.p1(this.chatPrivateMode);
                                     this.out.p1(this.chatTradeMode);
                                 }
-                            }
-
-                            // Add to chat history before clearing
-                            if (this.chatTyped.trim().length > 0) {
-                                this.chatHistory.push(this.chatTyped);
-                                // Keep only the last 50 messages in history
-                                if (this.chatHistory.length > 50) {
-                                    this.chatHistory.shift();
-                                }
-                                // Reset history index to the end
-                                this.chatHistoryIndex = this.chatHistory.length;
                             }
 
                             this.chatTyped = '';

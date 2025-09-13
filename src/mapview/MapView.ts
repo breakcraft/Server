@@ -77,8 +77,8 @@ export class MapView extends GameShell {
 
     redraw: boolean = true;
     redrawTimer: number = 0;
-    lastMouseClickX: number = -1;
-    lastMouseClickY: number = -1;
+    nextMouseClickX: number = -1;
+    nextMouseClickY: number = -1;
     lastOffsetX: number = -1;
     lastOffsetZ: number = -1;
 
@@ -391,7 +391,7 @@ export class MapView extends GameShell {
         }
     }
 
-    async refresh(): Promise<void> {
+    refresh() {
         this.redrawTimer = 0;
     }
 
@@ -456,35 +456,35 @@ export class MapView extends GameShell {
         } while (key > 0);
 
         if (this.mouseClickButton == 1) {
-            this.lastMouseClickX = this.mouseClickX;
-            this.lastMouseClickY = this.mouseClickY;
+            this.nextMouseClickX = this.mouseClickX;
+            this.nextMouseClickY = this.mouseClickY;
             this.lastOffsetX = this.offsetX;
             this.lastOffsetZ = this.offsetZ;
 
             let zoomY: number = this.height - this.keyY - 20 + 1;
             if (this.mouseClickX > 170 && this.mouseClickX < 220 && this.mouseClickY > zoomY) {
                 this.targetZoom = 3.0;
-                this.lastMouseClickX = -1;
+                this.nextMouseClickX = -1;
             } else if (this.mouseClickX > 230 && this.mouseClickX < 280 && this.mouseClickY > zoomY) {
                 this.targetZoom = 4.0;
-                this.lastMouseClickX = -1;
+                this.nextMouseClickX = -1;
             } else if (this.mouseClickX > 290 && this.mouseClickX < 340 && this.mouseClickY > zoomY) {
                 this.targetZoom = 6.0;
-                this.lastMouseClickX = -1;
+                this.nextMouseClickX = -1;
             } else if (this.mouseClickX > 350 && this.mouseClickX < 400 && this.mouseClickY > zoomY) {
                 this.targetZoom = 8.0;
-                this.lastMouseClickX = -1;
+                this.nextMouseClickX = -1;
             } else if (this.mouseClickX > this.keyX && this.mouseClickY > this.keyY + this.keyHeight && this.mouseClickX < this.keyX + this.keyWidth) {
                 this.showKey = !this.showKey;
-                this.lastMouseClickX = -1;
+                this.nextMouseClickX = -1;
             } else if (this.mouseClickX > this.overviewX && this.mouseClickY > this.overviewY + this.imageOverviewHeight && this.mouseClickX < this.overviewX + this.imageOverviewWidth) {
                 this.showOverview = !this.showOverview;
-                this.lastMouseClickX = -1;
+                this.nextMouseClickX = -1;
             }
 
             if (this.showKey) {
                 if (this.mouseClickX > this.keyX && this.mouseClickY > this.keyY && this.mouseClickX < this.keyX + this.keyWidth && this.mouseClickY < this.keyY + this.keyHeight) {
-                    this.lastMouseClickX = -1;
+                    this.nextMouseClickX = -1;
                 }
 
                 if (this.mouseClickX > this.keyX && this.mouseClickY > this.keyY && this.mouseClickX < this.keyX + this.keyWidth && this.mouseClickY < this.keyY + 18) {
@@ -537,14 +537,14 @@ export class MapView extends GameShell {
             if (mouseClickX > this.overviewX && mouseClickY > this.overviewY && mouseClickX < this.overviewX + this.imageOverviewWidth && mouseClickY < this.overviewY + this.imageOverviewHeight) {
                 this.offsetX = (((mouseClickX - this.overviewX) * this.sizeX) / this.imageOverviewWidth) | 0;
                 this.offsetZ = (((mouseClickY - this.overviewY) * this.sizeZ) / this.imageOverviewHeight) | 0;
-                this.lastMouseClickX = -1;
+                this.nextMouseClickX = -1;
                 this.redraw = true;
             }
         }
 
-        if (this.mouseButton == 1 && this.lastMouseClickX != -1) {
-            this.offsetX = this.lastOffsetX + ((((this.lastMouseClickX - this.mouseX) * 2.0) / this.targetZoom) | 0);
-            this.offsetZ = this.lastOffsetZ + ((((this.lastMouseClickY - this.mouseY) * 2.0) / this.targetZoom) | 0);
+        if (this.mouseButton == 1 && this.nextMouseClickX != -1) {
+            this.offsetX = this.lastOffsetX + ((((this.nextMouseClickX - this.mouseX) * 2.0) / this.targetZoom) | 0);
+            this.offsetZ = this.lastOffsetZ + ((((this.nextMouseClickY - this.mouseY) * 2.0) / this.targetZoom) | 0);
             this.redraw = true;
         }
 

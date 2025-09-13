@@ -1,12 +1,12 @@
+import InputTracking from '#/client/InputTracking.js';
+import { CanvasEnabledKeys, KeyCodes } from '#/client/KeyCodes.js';
+import MobileKeyboard from '#/client/MobileKeyboard.js';
+
 import { canvas, canvas2d } from '#/graphics/Canvas.js';
 import Pix3D from '#/graphics/Pix3D.js';
 import PixMap from '#/graphics/PixMap.js';
 
 import { sleep } from '#/util/JsUtil.js';
-
-import MobileKeyboard from '#/client/MobileKeyboard.js';
-import { CanvasEnabledKeys, KeyCodes } from '#/client/KeyCodes.js';
-import InputTracking from '#/client/InputTracking.js';
 
 export default abstract class GameShell {
     protected state: number = 0;
@@ -23,13 +23,13 @@ export default abstract class GameShell {
     public mouseButton: number = 0;
     public mouseX: number = -1;
     public mouseY: number = -1;
-    protected lastMouseClickButton: number = 0;
-    protected lastMouseClickX: number = 0;
-    protected lastMouseClickY: number = 0;
+    protected nextMouseClickButton: number = 0;
+    protected nextMouseClickX: number = -1;
+    protected nextMouseClickY: number = -1;
     public mouseClickButton: number = 0;
     public mouseClickX: number = -1;
     public mouseClickY: number = -1;
-    protected lastMouseClickTime: number = 0;
+    protected nextMouseClickTime: number = 0;
     public mouseClickTime: number = 0;
 
     public actionKey: number[] = [];
@@ -48,16 +48,20 @@ export default abstract class GameShell {
     protected ingame: boolean = false;
 
     // touch controls
-    private touching: boolean = false;
     private startedInViewport: boolean = false;
     private startedInTabArea: boolean = false;
-    private time: number = -1;
+    private ttime: number = -1;
+    // start
     private sx: number = 0;
     private sy: number = 0;
+    // mouse
     private mx: number = 0;
     private my: number = 0;
+    // new
     private nx: number = 0;
     private ny: number = 0;
+    private dragging: boolean = false;
+    private panning: boolean = false;
 
     abstract getTitleScreenState(): number;
     abstract isChatBackInputOpen(): boolean;
@@ -69,7 +73,7 @@ export default abstract class GameShell {
     protected async load() {}
     protected async update() {}
     protected async draw() {}
-    protected async refresh() {}
+    protected refresh() {}
 
     constructor(resizetoFit: boolean = false) {
         canvas.tabIndex = -1;
@@ -113,19 +117,23 @@ export default abstract class GameShell {
         canvas.onfocus = this.onfocus.bind(this);
         canvas.onblur = this.onblur.bind(this);
 
-        // pc
-        canvas.onmousedown = this.onmousedown.bind(this);
-        canvas.onmouseup = this.onmouseup.bind(this);
-        canvas.onmouseenter = this.onmouseenter.bind(this);
-        canvas.onmouseleave = this.onmouseleave.bind(this);
-        canvas.onmousemove = this.onmousemove.bind(this);
         canvas.onkeydown = this.onkeydown.bind(this);
         canvas.onkeyup = this.onkeyup.bind(this);
 
-        if (this.isMobile) {
-            canvas.ontouchstart = this.ontouchstart.bind(this);
-            canvas.ontouchend = this.ontouchend.bind(this);
-            canvas.ontouchmove = this.ontouchmove.bind(this);
+        canvas.onpointerdown = this.onpointerdown.bind(this);
+        canvas.onpointerup = this.onpointerup.bind(this);
+        canvas.onpointerenter = this.onpointerenter.bind(this);
+        canvas.onpointerleave = this.onpointerleave.bind(this);
+        canvas.onpointermove = this.onpointermove.bind(this);
+
+        if (this.isTouchDevice) {
+            if (this.hasTouchEvents) {
+                canvas.ontouchstart = this.ontouchstart.bind(this);
+            } else {
+                // edge case: we can't control canvas touch action behavior to allow zooming
+                // device has a touch screen but browser does not expose touchstart
+                canvas.style.touchAction = 'none';
+            }
         }
 
         // Preventing mouse events from bubbling up to the context menu in the browser for our canvas.
@@ -202,11 +210,11 @@ export default abstract class GameShell {
             await sleep(delta);
 
             while (count < 256) {
-                this.mouseClickButton = this.lastMouseClickButton;
-                this.mouseClickX = this.lastMouseClickX;
-                this.mouseClickY = this.lastMouseClickY;
-                this.mouseClickTime = this.lastMouseClickTime;
-                this.lastMouseClickButton = 0;
+                this.mouseClickButton = this.nextMouseClickButton;
+                this.mouseClickX = this.nextMouseClickX;
+                this.mouseClickY = this.nextMouseClickY;
+                this.mouseClickTime = this.nextMouseClickTime;
+                this.nextMouseClickButton = 0;
 
                 await this.update();
 
@@ -311,15 +319,6 @@ export default abstract class GameShell {
         await sleep(5); // return a slice of time to the main loop so it can update the progress bar
     }
 
-    protected pollKey() {
-        let key: number = -1;
-        if (this.keyQueueWritePos !== this.keyQueueReadPos) {
-            key = this.keyQueue[this.keyQueueReadPos];
-            this.keyQueueReadPos = (this.keyQueueReadPos + 1) & 0x7f;
-        }
-        return key;
-    }
-
     protected get ms(): number {
         const length: number = this.frameTime.length;
         let ft: number = 0;
@@ -340,6 +339,297 @@ export default abstract class GameShell {
     }
 
     // ----
+
+    private onpointerdown(e: PointerEvent) {
+        if (e.clientX < 0 || e.clientY < 0) {
+            return;
+        }
+
+        const { x, y } = this.getMousePos(e);
+
+        if (MobileKeyboard.isWithinCanvasKeyboard(x, y) && !this.exceedsGrabThreshold(20)) {
+            MobileKeyboard.captureMouseDown(x, y);
+            return;
+        }
+
+        if (e.pointerType === 'mouse') {
+            this.idleCycles = performance.now();
+            this.nextMouseClickX = x;
+            this.nextMouseClickY = y;
+            this.nextMouseClickTime = performance.now();
+
+            // custom: down event comes before and potentially without move event
+            this.mouseX = x;
+            this.mouseY = y;
+
+            if (e.button === 2) {
+                this.nextMouseClickButton = 2;
+                this.mouseButton = 2;
+            } else {
+                this.nextMouseClickButton = 1;
+                this.mouseButton = 1;
+            }
+
+            if (InputTracking.enabled) {
+                InputTracking.mousePressed(x, y, e.button, e.pointerType);
+            }
+        } else {
+            // custom: touchscreen support
+            // we don't acknowledge the first press as a click, instead we interpret the user's gesture on release
+
+            this.idleCycles = performance.now();
+            this.nextMouseClickX = -1;
+            this.nextMouseClickY = -1;
+            this.nextMouseClickButton = 0;
+            this.mouseX = x;
+            this.mouseY = y;
+            this.mouseButton = 0;
+
+            this.sx = this.nx = this.mx = e.screenX | 0;
+            this.sy = this.ny = this.my = e.screenY | 0;
+            this.ttime = e.timeStamp;
+
+            this.startedInViewport = this.insideViewportArea();
+            this.startedInTabArea = this.insideTabArea();
+        }
+    }
+
+    private onpointerup(e: PointerEvent) {
+        const { x, y } = this.getMousePos(e);
+
+        if (MobileKeyboard.isWithinCanvasKeyboard(x, y) && !this.exceedsGrabThreshold(20)) {
+            MobileKeyboard.captureMouseUp(x, y);
+            return;
+        }
+
+        if (e.pointerType === 'mouse') {
+            this.idleCycles = performance.now();
+            this.mouseButton = 0;
+
+            if (InputTracking.enabled) {
+                InputTracking.mouseReleased(e.button, e.pointerType);
+            }
+
+            // custom: up event comes before and potentially without move event
+            this.mouseX = x;
+            this.mouseY = y;
+
+            // custom: moving off-canvas may have a stuck mouse event
+            this.nextMouseClickX = -1;
+            this.nextMouseClickY = -1;
+            this.nextMouseClickButton = 0;
+        } else {
+            // custom: touchscreen support
+            // we don't acknowledge the first press as a click, instead we interpret the user's gesture on release
+
+            this.idleCycles = performance.now();
+            this.mouseX = x;
+            this.mouseY = y;
+
+            if (this.dragging) {
+                this.dragging = false;
+
+                this.nextMouseClickX = -1;
+                this.nextMouseClickY = -1;
+                this.nextMouseClickButton = 0;
+                this.mouseButton = 0;
+
+                if (InputTracking.enabled) {
+                    InputTracking.mouseReleased(0, e.pointerType);
+                }
+            } else if (this.panning) {
+                // ignore up events if the player was moving the camera in the viewport
+                this.panning = false;
+
+                // release all arrow keys
+                this.actionKey[1] = 0;
+                this.actionKey[2] = 0;
+                this.actionKey[3] = 0;
+                this.actionKey[4] = 0;
+                return;
+            } else {
+                if (!MobileKeyboard.isDisplayed() && this.insideMobileInputArea()) {
+                    // show keyboard when tapping in an input area
+                    MobileKeyboard.show();
+                } else if (MobileKeyboard.isDisplayed() && !MobileKeyboard.isWithinCanvasKeyboard(x, y) && !this.insideMobileInputArea()) {
+                    // hide keyboard when tapping outside of an input area
+                    MobileKeyboard.hide();
+                    this.refresh();
+                }
+
+                // within click threshold: activate mouse button
+                this.nextMouseClickX = x;
+                this.nextMouseClickY = y;
+                this.nextMouseClickTime = performance.now();
+
+                const longPress: boolean = e.timeStamp >= this.ttime + 500;
+                if (longPress) {
+                    this.nextMouseClickButton = 2;
+                    this.mouseButton = 2;
+                } else {
+                    this.nextMouseClickButton = 1;
+                    this.mouseButton = 1;
+                }
+
+                if (InputTracking.enabled) {
+                    InputTracking.mousePressed(x, y, longPress ? 2 : 0, e.pointerType);
+                }
+
+                // release after a client cycle has passed
+                setTimeout(() => {
+                    this.nextMouseClickX = -1;
+                    this.nextMouseClickY = -1;
+                    this.nextMouseClickButton = 0;
+                    this.mouseButton = 0;
+
+                    if (InputTracking.enabled) {
+                        InputTracking.mouseReleased(longPress ? 2 : 0, e.pointerType);
+                    }
+                }, 40);
+            }
+        }
+    }
+
+    private onpointerenter(e: PointerEvent) {
+        if (e.clientX < 0 || e.clientY < 0) {
+            return;
+        }
+
+        const { x, y } = this.getMousePos(e);
+
+        if (e.pointerType === 'mouse') {
+            this.mouseX = x;
+            this.mouseY = y;
+
+            if (InputTracking.enabled) {
+                InputTracking.mouseEntered();
+            }
+
+            // custom: moving off-canvas may have a stuck mouse event
+            this.nextMouseClickX = -1;
+            this.nextMouseClickY = -1;
+            this.nextMouseClickButton = 0;
+            this.mouseButton = 0;
+        } else {
+            // custom: touchscreen support
+
+            this.idleCycles = performance.now();
+            this.nextMouseClickX = -1;
+            this.nextMouseClickY = -1;
+            this.nextMouseClickButton = 0;
+            this.mouseX = x;
+            this.mouseY = y;
+            this.mouseButton = 0;
+
+            this.sx = this.nx = this.mx = e.screenX | 0;
+            this.sy = this.ny = this.my = e.screenY | 0;
+            this.ttime = e.timeStamp;
+
+            this.startedInViewport = this.insideViewportArea();
+            this.startedInTabArea = this.insideTabArea();
+        }
+    }
+
+    private onpointerleave(e: PointerEvent) {
+        if (e.pointerType === 'mouse') {
+            this.idleCycles = performance.now();
+            this.mouseX = -1;
+            this.mouseY = -1;
+
+            if (InputTracking.enabled) {
+                InputTracking.mouseExited();
+            }
+
+            // custom: moving off-canvas may have a stuck mouse event
+            this.nextMouseClickX = -1;
+            this.nextMouseClickY = -1;
+            this.nextMouseClickButton = 0;
+            this.mouseButton = 0;
+        } else {
+            // custom: touchscreen support
+            this.idleCycles = performance.now();
+
+            // release all arrow keys
+            this.actionKey[1] = 0;
+            this.actionKey[2] = 0;
+            this.actionKey[3] = 0;
+            this.actionKey[4] = 0;
+        }
+    }
+
+    private onpointermove(e: PointerEvent) {
+        if (e.clientX < 0 || e.clientY < 0) {
+            return;
+        }
+
+        const { x, y } = this.getMousePos(e);
+
+        if (e.pointerType === 'mouse') {
+            this.idleCycles = performance.now();
+            this.mouseX = x;
+            this.mouseY = y;
+
+            if (InputTracking.enabled) {
+                InputTracking.mouseMoved(x, y, e.pointerType);
+            }
+        } else {
+            // custom: touchscreen support
+            this.idleCycles = performance.now();
+            this.mouseX = x;
+            this.mouseY = y;
+
+            this.nx = e.screenX | 0;
+            this.ny = e.screenY | 0;
+
+            if (this.dragging) {
+                // no-op
+            } else if (MobileKeyboard.isWithinCanvasKeyboard(x, y) && this.exceedsGrabThreshold(20)) {
+                MobileKeyboard.notifyTouchMove(x, y);
+            } else if (this.startedInViewport && this.getViewportInterfaceId() === -1 && this.exceedsGrabThreshold(20)) {
+                // moving camera
+                this.panning = true;
+
+                // emulate arrow keys:
+                if (this.mx - this.nx > 0) {
+                    // right
+                    this.actionKey[2] = 1;
+                } else if (this.mx - this.nx < 0) {
+                    // left
+                    this.actionKey[1] = 1;
+                }
+
+                if (this.my - this.ny > 0) {
+                    // down
+                    this.actionKey[4] = 1;
+                } else if (this.my - this.ny < 0) {
+                    // up
+                    this.actionKey[3] = 1;
+                }
+            } else if (this.startedInTabArea || this.getViewportInterfaceId() !== -1) {
+                if (!this.dragging && this.exceedsGrabThreshold(5)) {
+                    this.dragging = true;
+
+                    this.nextMouseClickX = x;
+                    this.nextMouseClickY = y;
+                    this.nextMouseClickButton = 1;
+                    this.mouseButton = 1;
+                }
+            }
+
+            this.mx = this.nx;
+            this.my = this.ny;
+        }
+    }
+
+    // all mouse logic is done above, this is for controlling canvas behaviors
+    private ontouchstart(e: TouchEvent) {
+        if (e.touches.length < 2 || this.dragging) {
+            // 1 touch - prevent natural browser behavior
+            // 2+ touches - allow scrolling/zooming
+            e.preventDefault();
+        }
+    }
+
     private onkeydown(e: KeyboardEvent) {
         this.idleCycles = performance.now();
 
@@ -377,6 +667,12 @@ export default abstract class GameShell {
     }
 
     private onkeyup(e: KeyboardEvent) {
+        if (e.isTrusted && MobileKeyboard.isDisplayed()) {
+            // physical keyboard started typing, hide virtual
+            MobileKeyboard.hide();
+            this.refresh();
+        }
+
         this.idleCycles = performance.now();
 
         const keyCode = KeyCodes.get(e.key);
@@ -407,125 +703,16 @@ export default abstract class GameShell {
         }
     }
 
-    // todo: this.time prevents mice from working on mobile
-    private onmousedown(e: MouseEvent) {
-        this.touching = false;
-        //Don't 'reset' position (This fixes right click in Android)
-        if (e.clientX > 0 || e.clientY > 0) this.setMousePosition(e);
-
-        this.idleCycles = performance.now();
-        this.lastMouseClickX = this.mouseX;
-        this.lastMouseClickY = this.mouseY;
-        this.lastMouseClickTime = performance.now();
-
-        if (this.isMobile && !this.isCapacitor) {
-            if (this.insideMobileInputArea() && !this.insideUsernameArea() && !this.inPasswordArea() && !this.insideChatPopupArea()) {
-                // Negate the mousedown event - it's inside mobile input area
-                // It will be handled by mouseup.
-                this.lastMouseClickButton = 1;
-                this.mouseButton = 1;
-                return;
-            }
-
-            const eventTime: number = e.timeStamp;
-            if (eventTime >= this.time + 500) {
-                this.lastMouseClickButton = 2;
-                this.mouseButton = 2;
-            } else {
-                this.lastMouseClickButton = 1;
-                this.mouseButton = 1;
-            }
-        } else {
-            if (e.button === 2) {
-                this.lastMouseClickButton = 2;
-                this.mouseButton = 2;
-            } else if (e.button === 0) {
-                // custom: explicitly check left-mouse button so middle mouse is ignored
-                this.lastMouseClickButton = 1;
-                this.mouseButton = 1;
-            }
+    protected pollKey() {
+        let key: number = -1;
+        if (this.keyQueueWritePos !== this.keyQueueReadPos) {
+            key = this.keyQueue[this.keyQueueReadPos];
+            this.keyQueueReadPos = (this.keyQueueReadPos + 1) & 0x7f;
         }
-
-        if (MobileKeyboard.isDisplayed()) {
-            if (MobileKeyboard.captureMouseDown(this.mouseX, this.mouseY)) {
-                // Negate MouseDown if Keyboard shown and inside of Keyboard area
-                this.mouseButton = 0;
-                this.mouseClickButton = 0;
-            }
-        }
-
-        if (InputTracking.enabled) {
-            InputTracking.mousePressed(this.lastMouseClickX, this.lastMouseClickY, e.button);
-        }
+        return key;
     }
 
-    private onmouseup(e: MouseEvent) {
-        this.setMousePosition(e);
-
-        this.idleCycles = performance.now();
-        this.mouseButton = 0;
-
-        if (this.isMobile) {
-            const insideMobileInputArea = this.insideMobileInputArea();
-            if (insideMobileInputArea && !MobileKeyboard.isDisplayed()) {
-                // Show Keyboard if user presses input field
-                MobileKeyboard.show(this.mouseX, this.mouseY);
-            } else if (MobileKeyboard.isDisplayed()) {
-                if (!MobileKeyboard.captureMouseUp(this.mouseX, this.mouseY)) {
-                    // Hide Keyboard on mouse up outside of bounds
-                    MobileKeyboard.hide();
-                    this.refresh();
-                }
-            }
-        }
-
-        if (InputTracking.enabled) {
-            InputTracking.mouseReleased(e.button);
-        }
-    }
-
-    private onmouseenter(e: MouseEvent) {
-        this.setMousePosition(e);
-
-        if (InputTracking.enabled) {
-            InputTracking.mouseEntered();
-        }
-    }
-
-    private onmouseleave(e: MouseEvent) {
-        this.setMousePosition(e);
-
-        this.idleCycles = performance.now();
-        this.mouseX = -1;
-        this.mouseY = -1;
-
-        // custom (prevent mouse click from being stuck)
-        this.mouseButton = 0;
-        this.mouseClickX = -1;
-        this.mouseClickY = -1;
-
-        if (InputTracking.enabled) {
-            InputTracking.mouseExited();
-        }
-    }
-
-    private onmousemove(e: MouseEvent) {
-        this.setMousePosition(e);
-
-        this.idleCycles = performance.now();
-
-        if (this.isMobile && this.touching) {
-            if (MobileKeyboard.isDisplayed()) {
-                MobileKeyboard.notifyTouchMove(this.mouseX, this.mouseY);
-            }
-        }
-
-        if (InputTracking.enabled) {
-            InputTracking.mouseMoved(this.mouseX, this.mouseY);
-        }
-    }
-
-    private onfocus(e: FocusEvent) {
+    private onfocus(_e: FocusEvent) {
         this.hasFocus = true;
         this.redrawScreen = true;
         this.refresh();
@@ -535,10 +722,10 @@ export default abstract class GameShell {
         }
     }
 
-    private onblur(e: FocusEvent) {
+    private onblur(_e: FocusEvent) {
         this.hasFocus = false;
 
-        // CUSTOM: taken from later versions, releases all keys
+        // custom: taken from later version to release all keys
         for (let i = 0; i < 128; i++) {
             this.actionKey[i] = 0;
         }
@@ -548,135 +735,24 @@ export default abstract class GameShell {
         }
     }
 
-    private ontouchstart(e: TouchEvent) {
-        if (!this.isMobile) {
-            return;
-        }
+    // ----
 
-        this.touching = true;
-        const touch: Touch = e.changedTouches[0];
-        const clientX: number = touch.clientX | 0;
-        const clientY: number = touch.clientY | 0;
-        this.onmousemove(new MouseEvent('mousemove', { clientX: clientX, clientY: clientY }));
-
-        this.sx = this.nx = this.mx = touch.screenX | 0;
-        this.sy = this.ny = this.my = touch.screenY | 0;
-        this.time = e.timeStamp;
-
-        this.startedInViewport = this.insideViewportArea();
-        this.startedInTabArea = this.insideTabArea();
+    private get hasTouchEvents() {
+        return 'ontouchstart' in window;
     }
 
-    private ontouchend(e: TouchEvent) {
-        if (!this.isMobile || !this.touching) {
-            return;
-        }
-
-        const touch: Touch = e.changedTouches[0];
-        const clientX: number = touch.clientX | 0;
-        const clientY: number = touch.clientY | 0;
-        this.onmousemove(new MouseEvent('mousemove', { clientX: clientX, clientY: clientY }));
-
-        this.nx = touch.screenX | 0;
-        this.ny = touch.screenY | 0;
-
-        this.onkeyup(new KeyboardEvent('keyup', { key: 'ArrowLeft', code: 'ArrowLeft' }));
-        this.onkeyup(new KeyboardEvent('keyup', { key: 'ArrowUp', code: 'ArrowUp' }));
-        this.onkeyup(new KeyboardEvent('keyup', { key: 'ArrowRight', code: 'ArrowRight' }));
-        this.onkeyup(new KeyboardEvent('keyup', { key: 'ArrowDown', code: 'ArrowDown' }));
-
-        if (this.startedInViewport && !this.insideViewportArea()) {
-            this.touching = false;
-            return;
-        } else if (this.startedInTabArea && !this.insideTabArea()) {
-            this.touching = false;
-            return;
-        } else if (this.insideMobileInputArea()) {
-            this.touching = false;
-            return;
-        }
-
-        const eventTime: number = e.timeStamp;
-        const longPress: boolean = eventTime >= this.time + 500;
-        const moved: boolean = Math.abs(this.sx - this.nx) > 16 || Math.abs(this.sy - this.ny) > 16;
-
-        if (longPress && !moved) {
-            this.touching = true;
-            // Send both down and up events to simulate a right-click.
-            this.onmousedown(new MouseEvent('mousedown', { clientX, clientY, button: 2 }));
-            this.onmouseup(new MouseEvent('mouseup', { clientX, clientY, button: 2 }));
-        }
-    }
-
-    private ontouchmove(e: TouchEvent) {
-        if (!this.isMobile || !this.touching) {
-            return;
-        }
-
-        if (e.touches.length > 1) {
-            // allow multiple touch points to scroll on the page instead
-            return;
-        }
-
-        e.preventDefault();
-
-        const touch: Touch = e.changedTouches[0];
-        const clientX: number = touch.clientX | 0;
-        const clientY: number = touch.clientY | 0;
-        this.onmousemove(new MouseEvent('mousemove', { clientX: clientX, clientY: clientY }));
-
-        this.nx = touch.screenX | 0;
-        this.ny = touch.screenY | 0;
-
-        if (!MobileKeyboard.isWithinCanvasKeyboard(this.mouseX, this.mouseY)) {
-            if (this.startedInViewport && this.getViewportInterfaceId() === -1) {
-                // Camera panning
-                if (this.mx - this.nx > 0) {
-                    this.rotate(2);
-                } else if (this.mx - this.nx < 0) {
-                    this.rotate(0);
-                }
-
-                if (this.my - this.ny > 0) {
-                    this.rotate(3);
-                } else if (this.my - this.ny < 0) {
-                    this.rotate(1);
-                }
-            } else if (this.startedInTabArea || this.getViewportInterfaceId() !== -1) {
-                // Drag and drop
-                this.onmousedown(new MouseEvent('mousedown', { clientX, clientY, button: 1 }));
-            }
-        }
-
-        this.mx = this.nx;
-        this.my = this.ny;
+    private get isTouchDevice() {
+        return (this.hasTouchEvents ||
+            (navigator.maxTouchPoints > 0) ||
+            ((navigator as any).msMaxTouchPoints > 0));
     }
 
     protected get isMobile(): boolean {
-        const keywords: string[] = ['Android', 'webOS', 'iPhone', 'iPad', 'iPod', 'BlackBerry', 'Windows Phone'];
-        if (keywords.some((keyword: string): boolean => navigator.userAgent.includes(keyword))) {
+        if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|Windows Phone|Mobile/i.test(navigator.userAgent)) {
             return true;
         }
 
-        // Annoyingly, iOS Safari shares UA with MacOS these days, so we have
-        // to do some feature testing.
-        if (navigator) {
-            const isiOSSafari = navigator.maxTouchPoints !== undefined && navigator.maxTouchPoints > 2 && (navigator as any).standalone !== undefined;
-            if (isiOSSafari) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private get isAndroid(): boolean {
-        const keywords: string[] = ['Android'];
-        return keywords.some((keyword: string): boolean => navigator.userAgent.includes(keyword));
-    }
-
-    private get isCapacitor(): boolean {
-        const keywords: string[] = ['Capacitor'];
-        return keywords.some((keyword: string): boolean => navigator.userAgent.includes(keyword));
+        return this.isTouchDevice;
     }
 
     private insideViewportArea() {
@@ -690,7 +766,7 @@ export default abstract class GameShell {
 
     private insideMobileInputArea() {
         // custom: for mobile keyboard input
-        return this.insideChatInputArea() || this.insideChatPopupArea() || this.insideUsernameArea() || this.inPasswordArea() || this.insideReportInterfaceTextArea();
+        return this.insideChatInputArea() || this.insideChatPopupArea() || this.insideUsernameArea() || this.inPasswordArea() || this.in2FAInputArea() || this.insideReportInterfaceTextArea();
     }
 
     private insideChatInputArea() {
@@ -777,27 +853,19 @@ export default abstract class GameShell {
         return !this.ingame && this.getTitleScreenState() === 2 && this.mouseX >= passwordAreaX1 && this.mouseX <= passwordAreaX2 && this.mouseY >= passwordAreaY1 && this.mouseY <= passwordAreaY2;
     }
 
-    private rotate(direction: number) {
-        if (direction === 0) {
-            this.onkeyup(new KeyboardEvent('keyup', { key: 'ArrowRight', code: 'ArrowRight' }));
-            this.onkeydown(new KeyboardEvent('keydown', { key: 'ArrowLeft', code: 'ArrowLeft' }));
-        } else if (direction === 1) {
-            this.onkeyup(new KeyboardEvent('keyup', { key: 'ArrowDown', code: 'ArrowDown' }));
-            this.onkeydown(new KeyboardEvent('keydown', { key: 'ArrowUp', code: 'ArrowUp' }));
-        } else if (direction === 2) {
-            this.onkeyup(new KeyboardEvent('keyup', { key: 'ArrowLeft', code: 'ArrowLeft' }));
-            this.onkeydown(new KeyboardEvent('keydown', { key: 'ArrowRight', code: 'ArrowRight' }));
-        } else if (direction === 3) {
-            this.onkeyup(new KeyboardEvent('keyup', { key: 'ArrowUp', code: 'ArrowUp' }));
-            this.onkeydown(new KeyboardEvent('keydown', { key: 'ArrowDown', code: 'ArrowDown' }));
-        }
+    private in2FAInputArea() {
+        const inputAreaX1: number = 280;
+        const inputAreaY1: number = 233;
+        const inputAreaX2: number = inputAreaX1 + 190;
+        const inputAreaY2: number = inputAreaY1 + 61;
+        return !this.ingame && this.getTitleScreenState() === 1 && this.mouseX >= inputAreaX1 && this.mouseX <= inputAreaX2 && this.mouseY >= inputAreaY1 && this.mouseY <= inputAreaY2;
     }
 
     private isFullScreen() {
         return document.fullscreenElement !== null;
     }
 
-    private setMousePosition(e: MouseEvent) {
+    private getMousePos(e: MouseEvent): { x: number, y: number } {
         const fixedWidth: number = this.width;
         const fixedHeight: number = this.height;
 
@@ -806,8 +874,8 @@ export default abstract class GameShell {
             x: e.clientX - canvasBounds.left,
             y: e.clientY - canvasBounds.top
         };
-        let newX = 0;
-        let newY = 0;
+        let x = 0;
+        let y = 0;
 
         if (this.isFullScreen()) {
             // Fullscreen logic will ensure the canvas aspect ratio is
@@ -838,13 +906,13 @@ export default abstract class GameShell {
             }
             const scaleX = fixedWidth / trueCanvasWidth;
             const scaleY = fixedHeight / trueCanvasHeight;
-            newX = ((clickLocWithinCanvas.x - offsetX) * scaleX) | 0;
-            newY = ((clickLocWithinCanvas.y - offsetY) * scaleY) | 0;
+            x = ((clickLocWithinCanvas.x - offsetX) * scaleX) | 0;
+            y = ((clickLocWithinCanvas.y - offsetY) * scaleY) | 0;
         } else {
             const scaleX: number = canvas.width / canvasBounds.width;
             const scaleY: number = canvas.height / canvasBounds.height;
-            newX = (clickLocWithinCanvas.x * scaleX) | 0;
-            newY = (clickLocWithinCanvas.y * scaleY) | 0;
+            x = (clickLocWithinCanvas.x * scaleX) | 0;
+            y = (clickLocWithinCanvas.y * scaleY) | 0;
         }
 
         // Specifically filter events outside of bounds of canvas; this can
@@ -852,9 +920,26 @@ export default abstract class GameShell {
         // that the mouse appears to move up/down vertically along X:0 if they
         // move mouse on the black section to the left, vice versa for other
         // sides, depending on aspect ratio.
-        if (newX >= 0 && newX < fixedWidth && newY >= 0 && newY < fixedHeight) {
-            this.mouseX = newX;
-            this.mouseY = newY;
+        if (x < 0) {
+            x = 0;
         }
+
+        if (x > fixedWidth) {
+            x = fixedWidth;
+        }
+
+        if (y < 0) {
+            y = 0;
+        }
+
+        if (y > fixedHeight) {
+            y = fixedHeight;
+        }
+
+        return { x, y };
+    }
+
+    exceedsGrabThreshold(size: number) {
+        return Math.abs(this.sx - this.nx) > size || Math.abs(this.sy - this.ny) > size;
     }
 }
