@@ -6,11 +6,36 @@ import { ExitPromptError } from '@inquirer/core';
 import { confirm, input, number, select } from '@inquirer/prompts';
 
 // Subtree configuration
+// Push goes to your forks (breakcraft), Pull fetches from LostCityRS upstream.
 const subtreeRemotes = [
-    { prefix: 'engine', alias: 'engine-ts', url: 'https://github.com/breakcraft/Engine-TS' },
-    { prefix: 'content', alias: 'content', url: 'https://github.com/breakcraft/Content' },
-    { prefix: 'client', alias: 'client-ts', url: 'https://github.com/breakcraft/Client-TS' },
-    { prefix: 'javaclient', alias: 'client-java', url: 'https://github.com/breakcraft/Client-Java' }
+    {
+        prefix: 'engine',
+        alias: 'engine-ts',
+        url: 'https://github.com/breakcraft/Engine-TS',
+        pullAlias: 'lc-engine',
+        pullUrl: 'https://github.com/LostCityRS/Engine-TS'
+    },
+    {
+        prefix: 'content',
+        alias: 'content',
+        url: 'https://github.com/breakcraft/Content',
+        pullAlias: 'lc-content',
+        pullUrl: 'https://github.com/LostCityRS/Content'
+    },
+    {
+        prefix: 'client',
+        alias: 'client-ts',
+        url: 'https://github.com/breakcraft/Client-TS',
+        pullAlias: 'lc-client',
+        pullUrl: 'https://github.com/LostCityRS/Client-TS'
+    },
+    {
+        prefix: 'javaclient',
+        alias: 'client-java',
+        url: 'https://github.com/breakcraft/Client-Java',
+        pullAlias: 'lc-javaclient',
+        pullUrl: 'https://github.com/LostCityRS/Client-Java'
+    }
 ];
 
 function ensureRemote(alias: string, url: string) {
@@ -30,16 +55,17 @@ function isDirEmpty(dir: string): boolean {
     }
 }
 
-function subtreePull(prefix: string, alias: string, branch: string) {
+function subtreePull(prefix: string, remote: Subtree, branch: string) {
     // Fetch + subtree pull keeps subtrees up to date
-    child_process.execSync(`git fetch ${alias} ${branch} --depth=1`, { stdio: 'inherit' });
+    const pullAlias = (remote as any).pullAlias ?? remote.alias;
+    child_process.execSync(`git fetch ${pullAlias} ${branch} --depth=1`, { stdio: 'inherit' });
     try {
-        child_process.execSync(`git subtree pull --prefix=${prefix} ${alias} ${branch} --squash`, { stdio: 'inherit' });
+        child_process.execSync(`git subtree pull --prefix=${prefix} ${pullAlias} ${branch} --squash`, { stdio: 'inherit' });
     } catch (e) {
         // If the subtree was never added, attempt an initial add only if directory is missing or empty
         const exists = fs.existsSync(prefix);
         if (!exists || isDirEmpty(prefix)) {
-            child_process.execSync(`git subtree add --prefix=${prefix} ${alias} ${branch} --squash`, { stdio: 'inherit' });
+            child_process.execSync(`git subtree add --prefix=${prefix} ${pullAlias} ${branch} --squash`, { stdio: 'inherit' });
             return;
         }
         throw e;
@@ -85,7 +111,7 @@ let POLL_INTERVAL_MS = DEFAULTS.pollIntervalMs;
 let DEBOUNCE_MS = DEFAULTS.debounceMs;
 let PULL_INTERVAL_MS = DEFAULTS.pullIntervalMs; // periodically sync from upstream
 
-type Subtree = { prefix: string; alias: string; url: string };
+type Subtree = { prefix: string; alias: string; url: string; pullAlias?: string; pullUrl?: string };
 
 async function chooseUpdateAction(): Promise<'commit-push' | 'stash' | 'cancel'> {
     const isTTY = !!process.stdin.isTTY && !!process.stdout.isTTY;
@@ -172,7 +198,10 @@ function showSubtreeStatus(remotes: Subtree[], rev: string) {
             changes = child_process.execSync(`git status --porcelain -- ${r.prefix}`, { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
         } catch {}
         console.log(`- ${r.prefix}:`);
-        console.log(`  remote: ${r.alias} (${r.url})`);
+        console.log(`  push remote: ${r.alias} (${r.url})`);
+        if ((r as any).pullAlias || (r as any).pullUrl) {
+            console.log(`  pull source: ${(r as any).pullAlias ?? r.alias} (${(r as any).pullUrl ?? r.url})`);
+        }
         console.log(`  dir: ${exists ? (empty ? 'exists (empty)' : 'exists') : 'missing'}`);
         console.log(`  initialized: ${init ? 'yes' : 'no'}`);
         console.log(`  pull: ${init ? 'enabled' : 'skipped (not initialized)'}`);
@@ -189,7 +218,7 @@ function showSubtreeStatus(remotes: Subtree[], rev: string) {
     }
 }
 
-async function commitAndPushSubtree(prefix: string, alias: string, branch: string, url: string) {
+async function commitAndPushSubtree(prefix: string, remote: Subtree, branch: string) {
     // Check changes
     const changes = listSubtreeChanges(prefix);
     if (!changes.trim().length) {
@@ -221,16 +250,16 @@ async function commitAndPushSubtree(prefix: string, alias: string, branch: strin
     }
 
     // Push subtree
-    ensureRemote(alias, url);
-    console.log(`Pushing '${prefix}' to ${alias}/${branch}...`);
+    ensureRemote(remote.alias, remote.url);
+    console.log(`Pushing '${prefix}' to ${remote.alias}/${branch}...`);
     try {
-        child_process.execSync(`git subtree push --prefix=${prefix} ${alias} ${branch}`, { stdio: 'inherit' });
+        child_process.execSync(`git subtree push --prefix=${prefix} ${remote.alias} ${branch}`, { stdio: 'inherit' });
     } catch {
         console.log('Subtree push failed. Trying split + manual push...');
         try {
             const tempName = `subtree/${prefix}/${branch}/${Date.now()}`;
             child_process.execSync(`git subtree split --prefix=${prefix} -b ${tempName}`, { stdio: 'inherit' });
-            child_process.execSync(`git push ${alias} ${tempName}:${branch}`, { stdio: 'inherit' });
+            child_process.execSync(`git push ${remote.alias} ${tempName}:${branch}`, { stdio: 'inherit' });
             child_process.execSync(`git branch -D ${tempName}`, { stdio: 'inherit' });
         } catch {
             console.log('Manual split/push also failed. Please inspect your git history or push manually.');
@@ -250,7 +279,10 @@ function isSubtreeInitialized(prefix: string): boolean {
 async function startAutoUpdateWatchers(remotes: Subtree[], branch: string) {
     console.log('Auto-update watchers enabled. Press Ctrl+C to stop.');
     // Ensure remotes exist
-    for (const r of remotes) ensureRemote(r.alias, r.url);
+    for (const r of remotes) {
+        ensureRemote(r.alias, r.url);
+        if ((r as any).pullAlias && (r as any).pullUrl) ensureRemote((r as any).pullAlias, (r as any).pullUrl);
+    }
 
     const lastStatus = new Map<string, string>();
     const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -341,9 +373,10 @@ async function startAutoUpdateWatchers(remotes: Subtree[], branch: string) {
                 try {
                     if (initialized.get(r.prefix)) {
                         const before = child_process.execSync('git rev-parse HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
-                        subtreePull(r.prefix, r.alias, branch);
+                        subtreePull(r.prefix, r, branch);
                         try {
-                            child_process.execSync(`git commit -am "chore(${r.prefix}): merge updates from ${r.alias}/${branch}"`, { stdio: 'inherit' });
+                            const src = (r as any).pullAlias ?? r.alias;
+                            child_process.execSync(`git commit -am "chore(${r.prefix}): merge updates from ${src}/${branch}"`, { stdio: 'inherit' });
                         } catch { /* nothing to commit */ }
                         const after = child_process.execSync('git rev-parse HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
                         if (before !== after) {
@@ -437,14 +470,20 @@ async function handleCliArgs(): Promise<boolean> {
 
     // Non-interactive: just show subtree status
     if (argv.includes('--status')) {
-        for (const r of subtreeRemotes) ensureRemote(r.alias, r.url);
+        for (const r of subtreeRemotes) {
+            ensureRemote(r.alias, r.url);
+            if ((r as any).pullAlias && (r as any).pullUrl) ensureRemote((r as any).pullAlias, (r as any).pullUrl);
+        }
         showSubtreeStatus(subtreeRemotes as Subtree[], config.rev);
         return true;
     }
 
     // Non-interactive: start watchers only
     if (argv.includes('--start-watchers')) {
-        for (const r of subtreeRemotes) ensureRemote(r.alias, r.url);
+        for (const r of subtreeRemotes) {
+            ensureRemote(r.alias, r.url);
+            if ((r as any).pullAlias && (r as any).pullUrl) ensureRemote((r as any).pullAlias, (r as any).pullUrl);
+        }
         await startAutoUpdateWatchers(subtreeRemotes as Subtree[], config.rev);
         return true; // foreground run
     }
@@ -457,8 +496,11 @@ async function handleCliArgs(): Promise<boolean> {
             stashed = autoStash(`auto-stash before CLI update-and-sync (${new Date().toISOString()})`);
         }
         try {
-            for (const r of subtreeRemotes) ensureRemote(r.alias, r.url);
-            for (const r of subtreeRemotes) subtreePull(r.prefix, r.alias, config.rev);
+            for (const r of subtreeRemotes) {
+                ensureRemote(r.alias, r.url);
+                if ((r as any).pullAlias && (r as any).pullUrl) ensureRemote((r as any).pullAlias, (r as any).pullUrl);
+            }
+            for (const r of subtreeRemotes) subtreePull(r.prefix, r, config.rev);
         } finally {
             if (stashed) {
                 console.log('Reapplying stashed changes...');
@@ -567,7 +609,7 @@ async function main() {
                 for (const r of subtreeRemotes) {
                     const ch = listSubtreeChanges(r.prefix);
                     if (ch.trim().length) {
-                        await commitAndPushSubtree(r.prefix, r.alias, config.rev, r.url);
+                        await commitAndPushSubtree(r.prefix, r, config.rev);
                     }
                 }
                 // If other non-subtree changes still exist, offer to stash them
@@ -591,8 +633,11 @@ async function main() {
         let enableWatchFlag = false;
         try {
             // Ensure remotes exist, then pull each subtree on configured branch
-            for (const r of subtreeRemotes) ensureRemote(r.alias, r.url);
-            for (const r of subtreeRemotes) subtreePull(r.prefix, r.alias, config.rev);
+            for (const r of subtreeRemotes) {
+                ensureRemote(r.alias, r.url);
+                if ((r as any).pullAlias && (r as any).pullUrl) ensureRemote((r as any).pullAlias, (r as any).pullUrl);
+            }
+            for (const r of subtreeRemotes) subtreePull(r.prefix, r, config.rev);
         } finally {
             if (stashed) {
                 console.log('Reapplying stashed changes...');
@@ -616,7 +661,7 @@ async function main() {
                     for (const r of subtreeRemotes) {
                         const ch = listSubtreeChanges(r.prefix);
                         if (ch.trim().length) {
-                            await commitAndPushSubtree(r.prefix, r.alias, config.rev, r.url);
+                            await commitAndPushSubtree(r.prefix, r, config.rev);
                         }
                     }
                 }
@@ -757,7 +802,7 @@ async function promptAdvanced() {
                 for (const r of subtreeRemotes) {
                     const ch = listSubtreeChanges(r.prefix);
                     if (ch.trim().length) {
-                        await commitAndPushSubtree(r.prefix, r.alias, config.rev, r.url);
+                        await commitAndPushSubtree(r.prefix, r, config.rev);
                     }
                 }
                 if (hasUncommittedChanges()) {
@@ -778,8 +823,11 @@ async function promptAdvanced() {
         }
 
         try {
-            for (const r of subtreeRemotes) ensureRemote(r.alias, r.url);
-            for (const r of subtreeRemotes) subtreePull(r.prefix, r.alias, config.rev);
+            for (const r of subtreeRemotes) {
+                ensureRemote(r.alias, r.url);
+                if ((r as any).pullAlias && (r as any).pullUrl) ensureRemote((r as any).pullAlias, (r as any).pullUrl);
+            }
+            for (const r of subtreeRemotes) subtreePull(r.prefix, r, config.rev);
         } finally {
             if (stashed) {
                 console.log('Reapplying stashed changes...');
@@ -792,7 +840,10 @@ async function promptAdvanced() {
         await startAutoUpdateWatchers(subtreeRemotes as Subtree[], config.rev);
     } else if (choice === 'subtree-status') {
         // Ensure remotes exist for accurate reporting
-        for (const r of subtreeRemotes) ensureRemote(r.alias, r.url);
+        for (const r of subtreeRemotes) {
+            ensureRemote(r.alias, r.url);
+            if ((r as any).pullAlias && (r as any).pullUrl) ensureRemote((r as any).pullAlias, (r as any).pullUrl);
+        }
 
         console.log('Subtree Status:\n');
         for (const r of subtreeRemotes) {
@@ -805,7 +856,10 @@ async function promptAdvanced() {
                 changes = child_process.execSync(`git status --porcelain -- ${r.prefix}`, { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
             } catch { /* ignore */ }
             console.log(`- ${r.prefix}:`);
-            console.log(`  remote: ${r.alias} (${r.url})`);
+            console.log(`  push remote: ${r.alias} (${r.url})`);
+            if ((r as any).pullAlias || (r as any).pullUrl) {
+                console.log(`  pull source: ${(r as any).pullAlias ?? r.alias} (${(r as any).pullUrl ?? r.url})`);
+            }
             console.log(`  dir: ${exists ? (empty ? 'exists (empty)' : 'exists') : 'missing'}`);
             console.log(`  initialized: ${init ? 'yes' : 'no'}`);
             console.log(`  pull: ${init ? 'enabled' : 'skipped (not initialized)'}`);
@@ -831,7 +885,10 @@ async function promptAdvanced() {
         if (!proceed) return;
 
         // Ensure remotes
-        for (const r of subtreeRemotes) ensureRemote(r.alias, r.url);
+        for (const r of subtreeRemotes) {
+            ensureRemote(r.alias, r.url);
+            if ((r as any).pullAlias && (r as any).pullUrl) ensureRemote((r as any).pullAlias, (r as any).pullUrl);
+        }
 
         // Option: stash repo changes to avoid conflicts
         let stashed = false;
@@ -938,7 +995,8 @@ async function promptAdvanced() {
 
             // Attempt subtree add
             try {
-                child_process.execSync(`git subtree add --prefix=${prefix} ${r.alias} ${config.rev} --squash`, { stdio: 'inherit' });
+                const src = (r as any).pullAlias ?? r.alias;
+                child_process.execSync(`git subtree add --prefix=${prefix} ${src} ${config.rev} --squash`, { stdio: 'inherit' });
             } catch {
                 console.log(`${prefix}: subtree add failed.`);
                 // Restore backup if we moved it
@@ -960,7 +1018,8 @@ async function promptAdvanced() {
             // Stage and commit
             try {
                 child_process.execSync(`git add -A ${prefix}`, { stdio: 'inherit' });
-                const msg = `init-subtree(${prefix}): add ${r.alias}/${config.rev} (backup ${path.basename(backupDir)})`;
+                const src = (r as any).pullAlias ?? r.alias;
+                const msg = `init-subtree(${prefix}): add ${src}/${config.rev} (backup ${path.basename(backupDir)})`;
                 child_process.execSync(`git commit -m "${msg.replace(/"/g, '\\"')}"`, { stdio: 'inherit' });
             } catch {}
 
@@ -1099,8 +1158,11 @@ async function promptAdvanced() {
 
         try {
             // Update all subtrees to the selected branch
-            for (const r of subtreeRemotes) ensureRemote(r.alias, r.url);
-            for (const r of subtreeRemotes) subtreePull(r.prefix, r.alias, config.rev);
+            for (const r of subtreeRemotes) {
+                ensureRemote(r.alias, r.url);
+                if ((r as any).pullAlias && (r as any).pullUrl) ensureRemote((r as any).pullAlias, (r as any).pullUrl);
+            }
+            for (const r of subtreeRemotes) subtreePull(r.prefix, r, config.rev);
         } finally {
             if (stashed) {
                 console.log('Reapplying stashed changes...');
