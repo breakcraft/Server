@@ -37,6 +37,11 @@ let config = {
     rev: 'unset'
 };
 
+const hasWebclient: Record<string, boolean> = {
+    '225': true,
+    '244': true
+};
+
 let running = true;
 async function main() {
     if (!fs.existsSync('server.json')) {
@@ -53,7 +58,7 @@ async function main() {
         cloneRepo(contentRepo, 'content', config.rev);
     }
 
-    if (!fs.existsSync('webclient')) {
+    if (hasWebclient[config.rev] && !fs.existsSync('webclient')) {
         cloneRepo(webRepo, 'webclient', config.rev);
     }
 
@@ -151,10 +156,15 @@ async function promptConfig() {
             name: '244',
             description: 'June 28, 2004',
             value: '244'
+        }, {
+            name: '245.2',
+            description: 'July 13, 2004 (there were 3 "245" builds!)',
+            value: '245.2'
         }]
     }, { clearPromptOnDone: true });
 
     config.rev = rev;
+
     fs.writeFileSync('server.json', JSON.stringify(config, null, 2));
 }
 
