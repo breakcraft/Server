@@ -39,7 +39,8 @@ let config = {
 
 const hasWebclient: Record<string, boolean> = {
     '225': true,
-    '244': true
+    '244': true,
+    '245.2': true
 };
 
 let running = true;
@@ -120,7 +121,9 @@ async function main() {
         updateRepo('webclient');
         updateRepo('javaclient');
     } else if (choice === 'web') {
-        if (process.platform === 'win32' || process.platform === 'darwin') {
+        if (!hasWebclient[config.rev]) {
+            console.log('This version does not have a webclient available (yet?), sorry.');
+        } else if (process.platform === 'win32' || process.platform === 'darwin') {
             runOnOs('http://localhost/rs2.cgi');
         } else {
             runOnOs('http://localhost:8888/rs2.cgi');
