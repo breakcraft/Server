@@ -6,21 +6,18 @@ if errorlevel 1 (
     exit /b
 )
 
-where /q node
-if errorlevel 1 (
-    echo You must install Node to proceed: https://nodejs.org/en
-    exit /b
-)
-
 where /q bun
 if errorlevel 1 (
-    npm i -g bun
-)
+    where /q node
+    if errorlevel 0 (
+        npm i -g bun
+    )
 
-where /q bun
-if errorlevel 1 (
-    echo You must install Bun to proceed: https://bun.sh
-    exit /b
+    where /q bun
+    if errorlevel 1 (
+        echo You must install Bun to proceed: https://bun.sh
+        exit /b
+    )
 )
 
 where /q java

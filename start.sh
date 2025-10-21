@@ -5,15 +5,6 @@ if ! command -v git 2>&1 >/dev/null; then
 	exit 1
 fi
 
-if ! command -v node 2>&1 >/dev/null; then
-	echo You must install Node to proceed
-	exit 1
-fi
-
-if ! command -v bun 2>&1 >/dev/null; then
-	npm i -g bun
-fi
-
 if ! command -v bun 2>&1 >/dev/null; then
 	echo You must install Bun to proceed
 	exit 1
