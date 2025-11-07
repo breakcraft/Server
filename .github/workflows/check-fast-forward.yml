@@ -30,14 +30,16 @@ jobs:
           echo "Checking repository: $REPO_FULL_NAME"
 
           # Get repository details using GitHub API
-          REPO_DATA=$(curl -s -f \
+          HTTP_CODE=$(curl -s -w "%{http_code}" -o /tmp/repo_data.json \
             -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
             "https://api.github.com/repos/$REPO_FULL_NAME")
 
-          if [ $? -ne 0 ]; then
-            echo "Error: Failed to fetch repository information from GitHub API"
+          if [ "$HTTP_CODE" -ne 200 ]; then
+            echo "Error: Failed to fetch repository info (HTTP $HTTP_CODE)"
             exit 1
           fi
+
+          REPO_DATA=$(cat /tmp/repo_data.json)
 
           IS_FORK=$(echo "$REPO_DATA" | jq -r '.fork')
           echo "is_fork=$IS_FORK" >> $GITHUB_OUTPUT
@@ -71,7 +73,7 @@ jobs:
           fi
 
           # Fetch upstream branch with error handling
-          if ! git fetch upstream "$BRANCH" 2>&1; then
+          if ! git fetch upstream "$BRANCH"; then
             echo "Error: Failed to fetch upstream branch '$BRANCH'"
             echo "The branch may not exist in the upstream repository"
             exit 1
@@ -116,9 +118,7 @@ jobs:
           echo "Fast-forward check is not applicable."
 
       - name: Report success
-        if: |
-          steps.repo-info.outputs.is_fork == 'true' &&
-          steps.check-ff.outputs.can_fast_forward == 'true'
+        if: steps.check-ff.outputs.can_fast_forward == 'true'
         run: |
           echo "✅ Fast-forward check passed!"
           if [ "${{ steps.check-ff.outputs.status }}" = "up-to-date" ]; then
@@ -128,9 +128,7 @@ jobs:
           fi
 
       - name: Report failure
-        if: |
-          steps.repo-info.outputs.is_fork == 'true' &&
-          steps.check-ff.outputs.can_fast_forward == 'false'
+        if: steps.check-ff.outputs.can_fast_forward == 'false'
         run: |
           echo "❌ Fast-forward check failed!"
           echo "Branch has diverged from upstream and cannot fast-forward."
