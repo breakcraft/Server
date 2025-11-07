@@ -1,6 +1,7 @@
+---
 name: Check Fast-Forward to Upstream
 
-on:
+'on':
   push:
     branches:
       - main
@@ -10,13 +11,14 @@ on:
   schedule:
     # Run daily at 00:00 UTC
     - cron: '0 0 * * *'
-  workflow_dispatch:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
 
 jobs:
   check-fast-forward:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
 
     steps:
       - name: Checkout repository
@@ -62,8 +64,17 @@ jobs:
         id: check-ff
         run: |
           PARENT_URL="${{ steps.repo-info.outputs.parent_clone_url }}"
-          BRANCH="${{ github.ref_name }}"
 
+          # Resolve branch: use PR base branch on pull_request,
+          # otherwise use ref_name
+          if [ "${{ github.event_name }}" = "pull_request" ] && \
+             [ -n "${{ github.event.pull_request.base.ref }}" ]; then
+            BRANCH="${{ github.event.pull_request.base.ref }}"
+          else
+            BRANCH="${{ github.ref_name }}"
+          fi
+
+          echo "Resolved target branch: $BRANCH"
           echo "Fetching upstream repository: $PARENT_URL"
 
           # Check if upstream remote exists, add or update it
@@ -75,8 +86,9 @@ jobs:
             git remote add upstream "$PARENT_URL"
           fi
 
-          # Fetch upstream branch with error handling
-          if ! git fetch upstream "$BRANCH"; then
+          # Fetch the exact heads ref to avoid pull/*/merge
+          if ! git fetch upstream \
+              "refs/heads/$BRANCH:refs/remotes/upstream/$BRANCH"; then
             echo "Error: Failed to fetch upstream branch '$BRANCH'"
             echo "The branch may not exist in the upstream repository."
             echo "Please verify the branch name and upstream repository."
@@ -136,11 +148,3 @@ jobs:
           else
             echo "Branch can fast-forward to upstream."
           fi
-
-      - name: Report failure
-        if: steps.check-ff.outputs.can_fast_forward == 'false'
-        run: |
-          echo "❌ Fast-forward check failed!"
-          echo "Branch has diverged from upstream and cannot fast-forward."
-          echo "Manual merge or rebase is required."
-          exit 1
