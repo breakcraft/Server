@@ -1,0 +1,120 @@
+name: Check Fast-Forward to Upstream
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  schedule:
+    # Run daily at 00:00 UTC
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+jobs:
+  check-fast-forward:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get repository information
+        id: repo-info
+        run: |
+          # Get fork information from GitHub API
+          REPO_FULL_NAME="${{ github.repository }}"
+          echo "Checking repository: $REPO_FULL_NAME"
+
+          # Get repository details using GitHub API
+          REPO_DATA=$(curl -s \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/$REPO_FULL_NAME")
+
+          IS_FORK=$(echo "$REPO_DATA" | jq -r '.fork')
+          echo "is_fork=$IS_FORK" >> $GITHUB_OUTPUT
+
+          if [ "$IS_FORK" = "true" ]; then
+            PARENT_FULL_NAME=$(echo "$REPO_DATA" | jq -r '.parent.full_name')
+            PARENT_CLONE_URL=$(echo "$REPO_DATA" | jq -r '.parent.clone_url')
+            echo "parent_full_name=$PARENT_FULL_NAME" >> $GITHUB_OUTPUT
+            echo "parent_clone_url=$PARENT_CLONE_URL" >> $GITHUB_OUTPUT
+            echo "This repository is a fork of: $PARENT_FULL_NAME"
+          else
+            echo "This repository is not a fork."
+          fi
+
+      - name: Check fast-forward capability
+        if: steps.repo-info.outputs.is_fork == 'true'
+        id: check-ff
+        run: |
+          PARENT_URL="${{ steps.repo-info.outputs.parent_clone_url }}"
+          BRANCH="${{ github.ref_name }}"
+
+          echo "Fetching upstream repository: $PARENT_URL"
+          git remote add upstream "$PARENT_URL" || \
+            git remote set-url upstream "$PARENT_URL"
+          git fetch upstream "$BRANCH"
+
+          echo "Checking if $BRANCH can fast-forward to upstream/$BRANCH"
+
+          # Get the current HEAD and upstream HEAD
+          CURRENT_HEAD=$(git rev-parse HEAD)
+          UPSTREAM_HEAD=$(git rev-parse upstream/$BRANCH)
+
+          echo "Current HEAD: $CURRENT_HEAD"
+          echo "Upstream HEAD: $UPSTREAM_HEAD"
+
+          # Check if current HEAD is an ancestor of upstream HEAD
+          # (can fast-forward)
+          if git merge-base --is-ancestor HEAD upstream/$BRANCH; then
+            echo "✅ Branch can fast-forward to upstream/$BRANCH"
+            echo "can_fast_forward=true" >> $GITHUB_OUTPUT
+
+            # Check if already up to date
+            if [ "$CURRENT_HEAD" = "$UPSTREAM_HEAD" ]; then
+              echo "Already up to date with upstream."
+              echo "status=up-to-date" >> $GITHUB_OUTPUT
+            else
+              BEHIND_COUNT=$(git rev-list --count HEAD..upstream/$BRANCH)
+              echo "Behind upstream by $BEHIND_COUNT commits."
+              echo "status=can-fast-forward" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "❌ Branch cannot fast-forward to upstream/$BRANCH"
+            echo "Diverged from upstream. Manual merge required."
+            echo "can_fast_forward=false" >> $GITHUB_OUTPUT
+            echo "status=diverged" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      - name: Report status (Not a Fork)
+        if: steps.repo-info.outputs.is_fork != 'true'
+        run: |
+          echo "ℹ️ This repository is not a fork."
+          echo "Fast-forward check is not applicable."
+
+      - name: Report success
+        if: |
+          steps.repo-info.outputs.is_fork == 'true' &&
+          steps.check-ff.outputs.can_fast_forward == 'true'
+        run: |
+          echo "✅ Fast-forward check passed!"
+          if [ "${{ steps.check-ff.outputs.status }}" = "up-to-date" ]; then
+            echo "Branch is up to date with upstream."
+          else
+            echo "Branch can fast-forward to upstream."
+          fi
+
+      - name: Report failure
+        if: |
+          steps.repo-info.outputs.is_fork == 'true' &&
+          steps.check-ff.outputs.can_fast_forward == 'false'
+        run: |
+          echo "❌ Fast-forward check failed!"
+          echo "Branch has diverged from upstream and cannot fast-forward."
+          echo "Manual merge or rebase is required."
+          exit 1
