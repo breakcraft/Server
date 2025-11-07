@@ -30,9 +30,14 @@ jobs:
           echo "Checking repository: $REPO_FULL_NAME"
 
           # Get repository details using GitHub API
-          REPO_DATA=$(curl -s \
+          REPO_DATA=$(curl -s -f \
             -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
             "https://api.github.com/repos/$REPO_FULL_NAME")
+
+          if [ $? -ne 0 ]; then
+            echo "Error: Failed to fetch repository information from GitHub API"
+            exit 1
+          fi
 
           IS_FORK=$(echo "$REPO_DATA" | jq -r '.fork')
           echo "is_fork=$IS_FORK" >> $GITHUB_OUTPUT
@@ -55,9 +60,22 @@ jobs:
           BRANCH="${{ github.ref_name }}"
 
           echo "Fetching upstream repository: $PARENT_URL"
-          git remote add upstream "$PARENT_URL" || \
+
+          # Check if upstream remote exists, add or update it
+          if git remote get-url upstream >/dev/null 2>&1; then
+            echo "Updating existing upstream remote"
             git remote set-url upstream "$PARENT_URL"
-          git fetch upstream "$BRANCH"
+          else
+            echo "Adding upstream remote"
+            git remote add upstream "$PARENT_URL"
+          fi
+
+          # Fetch upstream branch with error handling
+          if ! git fetch upstream "$BRANCH" 2>&1; then
+            echo "Error: Failed to fetch upstream branch '$BRANCH'"
+            echo "The branch may not exist in the upstream repository"
+            exit 1
+          fi
 
           echo "Checking if $BRANCH can fast-forward to upstream/$BRANCH"
 
