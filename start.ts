@@ -37,10 +37,29 @@ let config = {
     rev: 'unset'
 };
 
-const hasWebclient: Record<string, boolean> = {
-    '225': true,
-    '244': true,
-    '245.2': true
+type RevInfo = {
+    description: string;
+    webclient?: boolean;
+    wip?: boolean;
+}
+
+const revInfo: Record<string, RevInfo> = {
+    '225': {
+        description: 'May 18, 2004',
+        webclient: true
+    },
+    '244': {
+        description: 'June 28, 2004',
+        webclient: true
+    },
+    '245.2': {
+        description: 'July 13, 2004 (there were 3 "245" builds!)',
+        webclient: true
+    },
+    '254': {
+        description: 'September 7, 2004',
+        wip: true
+    }
 };
 
 let running = true;
@@ -59,7 +78,7 @@ async function main() {
         cloneRepo(contentRepo, 'content', config.rev);
     }
 
-    if (hasWebclient[config.rev] && !fs.existsSync('webclient')) {
+    if (revInfo[config.rev]?.webclient && !fs.existsSync('webclient')) {
         cloneRepo(webRepo, 'webclient', config.rev);
     }
 
@@ -149,21 +168,22 @@ async function main() {
 }
 
 async function promptConfig() {
+    const orderedRevs = Object.entries(revInfo);
+    orderedRevs.sort((a, b) => parseInt(a[0]) - parseInt(b[0])); // descending revs
+    orderedRevs.sort((a, b) => a[1].wip ? 1 : -1); // wip last
+
+    let choices = [];
+    for (const [rev, info] of orderedRevs) {
+        choices.push({
+            name: info.wip ? `${rev} (WIP)` : rev,
+            value: rev,
+            description: info.description
+        });
+    }
+
     const rev = await select({
         message: 'What version are you interested in?',
-        choices: [{
-            name: '225',
-            description: 'May 18, 2004',
-            value: '225'
-        }, {
-            name: '244',
-            description: 'June 28, 2004',
-            value: '244'
-        }, {
-            name: '245.2',
-            description: 'July 13, 2004 (there were 3 "245" builds!)',
-            value: '245.2'
-        }]
+        choices
     }, { clearPromptOnDone: true });
 
     config.rev = rev;
