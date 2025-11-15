@@ -5,7 +5,7 @@ import { ExitPromptError } from '@inquirer/core';
 import { confirm, input, number, password, select } from '@inquirer/prompts';
 
 // if you're forking this feel free to change these :) it does make some assumptions elsewhere (branch names)
-const repoOrg = 'https://github.com/Breakcraft';
+const repoOrg = 'https://github.com/LostCityRS';
 const engineRepo = 'Engine-TS';
 const contentRepo = 'Content';
 const webRepo = 'Client-TS';
@@ -37,14 +37,6 @@ let config = {
     rev: 'unset'
 };
 
-// Which versions actually have a webclient bundled and usable
-const hasWebclient: Record<string, boolean> = {
-    '225': true,
-    '244': true,
-    '245.2': true,
-    '377': true
-};
-
 type RevInfo = {
     description: string;
     webclient?: boolean;
@@ -67,10 +59,6 @@ const revInfo: Record<string, RevInfo> = {
     '254': {
         description: 'September 7, 2004',
         wip: true
-    },
-    '377': {
-        description: 'May 2, 2006',
-        wip: true
     }
 };
 
@@ -83,13 +71,11 @@ async function main() {
     config = JSON.parse(fs.readFileSync('server.json', 'utf8'));
 
     if (!fs.existsSync('engine')) {
-        const engineBranch = config.rev === '377' ? '377-wip' : config.rev;
-        cloneRepo(engineRepo, 'engine', engineBranch);
+        cloneRepo(engineRepo, 'engine', config.rev);
     }
 
     if (!fs.existsSync('content')) {
-        const contentBranch = config.rev === '377' ? '377-wip' : config.rev;
-        cloneRepo(contentRepo, 'content', contentBranch);
+        cloneRepo(contentRepo, 'content', config.rev);
     }
 
     if (revInfo[config.rev]?.webclient && !fs.existsSync('webclient')) {
@@ -97,8 +83,7 @@ async function main() {
     }
 
     if (!fs.existsSync('javaclient')) {
-        const javaBranch = config.rev;
-        cloneRepo(javaRepo, 'javaclient', javaBranch);
+        cloneRepo(javaRepo, 'javaclient', config.rev);
     }
 
     if (!fs.existsSync('engine/.env')) {
@@ -152,9 +137,7 @@ async function main() {
     } else if (choice === 'update') {
         updateRepo('engine');
         updateRepo('content');
-        if (fs.existsSync('webclient')) {
-            updateRepo('webclient');
-        }
+        updateRepo('webclient');
         updateRepo('javaclient');
     } else if (choice === 'web') {
         if (!hasWebclient[config.rev]) {
@@ -303,3 +286,4 @@ try {
         console.log(e.message);
     }
 }
+

@@ -1,0 +1,14 @@
+﻿[submodule "engine"]
+	path = engine
+	url = https://github.com/Breakcraft/Engine-TS.git
+	branch = 377-wip
+
+[submodule "content"]
+	path = content
+	url = https://github.com/Breakcraft/Content.git
+	branch = 377-wip
+
+[submodule "javaclient"]
+	path = javaclient
+	url = https://github.com/Breakcraft/Client-Java.git
+	branch = 377
